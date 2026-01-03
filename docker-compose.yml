@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  db:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile
+    container_name: postgis_db
+    environment:
+      POSTGRES_USER: postgis
+      POSTGRES_PASSWORD: postgis
+      POSTGRES_DB: routing
+    volumes:
+      - "./docker-data/postgis:/var/lib/postgresql/data"
+      - "./sql/01-enable-extensions.sql:/docker-entrypoint-initdb.d/20-enable-extensions.sql"
+      - "./sql/02-create_tables.sql:/docker-entrypoint-initdb.d/30-create_tables.sql"
+    ports:
+      - "5432:5432"
