@@ -1,194 +1,116 @@
-// Licensed under the MIT license. See LICENSE file in the project root for full license information.
-
-import { Injectable, NgZone } from "@angular/core";
+// Erweiterung für den MapService (angular 18+)
+import { Injectable, signal, NgZone, inject } from '@angular/core';
 import * as maplibregl from 'maplibre-gl';
-import { LngLatLike, MapOptions, GeoJSONSource, MapLayerMouseEvent, StyleSpecification, MapGeoJSONFeature } from 'maplibre-gl';
-import { BehaviorSubject, Observable, ReplaySubject } from "rxjs";
-import { first } from 'rxjs/operators';
-import { StateVector } from '../model/state-vector';
 
-@Injectable({
-  providedIn: 'root',
-})
+@Injectable({ providedIn: 'root' })
 export class MapService {
+  private readonly zone = inject(NgZone);
+  private map?: maplibregl.Map;
 
-  public mapInstance!: maplibregl.Map;
+  // Signale für die ausgewählten Punkte
+  readonly startPoint = signal<[number, number] | null>(null);
+  readonly endPoint = signal<[number, number] | null>(null);
 
-  private mapCreated$: BehaviorSubject<boolean>;
-  private mapLoaded$: BehaviorSubject<boolean>;
-  private markerClick$: ReplaySubject<MapGeoJSONFeature[]>;
-  private markers: GeoJSON.FeatureCollection<GeoJSON.Geometry>;
+  private startMarker?: maplibregl.Marker;
+  private endMarker?: maplibregl.Marker;
 
-  constructor(private ngZone: NgZone) {
-    this.mapCreated$ = new BehaviorSubject<boolean>(false);
-    this.mapLoaded$ = new BehaviorSubject<boolean>(false);
-    this.markerClick$ = new ReplaySubject();
-
-    this.markers = {
-      type: 'FeatureCollection',
-      features: [],
-    };
-  }
-
-  buildMap(mapContainer: string | HTMLElement, style?: StyleSpecification | string, center?: LngLatLike, zoom?: number) {
-    this.ngZone.onStable.pipe(first()).subscribe(() => {
-      this.createMap(mapContainer, style, center, zoom);
-      this.registerEvents();
-    });
-  }
-
-  private createMap(mapContainer: string | HTMLElement, style?: StyleSpecification | string, center?: LngLatLike, zoom?: number): void {
-    const mapboxOptions: MapOptions = {
-      container: mapContainer,
-      style: style,
-      center: center,
-      zoom: zoom
-    };
-
-    this.mapInstance = new maplibregl.Map(mapboxOptions);
-  }
-
-  private async registerEvents() {
-
-    this.mapInstance.on('style.load', async () => {
-
-      // We cannot reference the mapInstance in the callback, so store
-      // it temporarily here:
-      const map = this.mapInstance;
-      const markers = this.markers;
-
-      var icon_plane = await map.loadImage('/assets/plane.png');
-      var icon_plane_selected = await map.loadImage('/assets/plane_selected.png');
-
-      map.addImage('icon_plane', icon_plane.data);
-      map.addImage('icon_plane_selected', icon_plane_selected.data);
-
-      map.addSource('markers', {
-        "type": "geojson",
-        "data": markers
+  buildMap(container: HTMLElement, style: any, center: any, zoom: any): void {
+    this.zone.runOutsideAngular(() => {
+      this.map = new maplibregl.Map({
+        container, style, center, zoom
       });
 
-      map.addLayer({
-        "id": "markers",
-        "source": "markers",
-        "type": "symbol",
-        "layout": {
-          "icon-image": "icon_plane",
-          "icon-allow-overlap": true,
-          "icon-rotate": {
-            "property": "icon_rotate",
-            "type": "identity"
-          }
-        }
+      this.map.on('load', () => this.setupRoutingLayers());
+
+      // Klick-Event zur Auswahl der Punkte
+      this.map.on('click', (e) => {
+        this.zone.run(() => this.handleMapClick(e.lngLat));
       });
-
-      map.addLayer({
-        "id": "markers-highlight",
-        "source": "markers",
-        "type": "symbol",
-        "layout": {
-          "icon-image": "icon_plane_selected",
-          "icon-allow-overlap": true,
-          "icon-rotate": {
-            "property": "icon_rotate",
-            "type": "identity"
-          }
-        },
-        'filter': ['in', 'flight.icao24', '']
-      });
-
-      this.ngZone.run(() => {
-        this.mapLoaded$.next(true);
-      });
-    });
-
-    this.mapInstance.on('click', 'markers', (e: MapLayerMouseEvent) => {
-      this.ngZone.run(() => {
-        if (e.features) {
-          this.markerClick$.next(e.features);
-        }
-      });
-    });
-
-    this.mapInstance.on('mousemove', 'markers', (e) => {
-      this.mapInstance.getCanvas().style.cursor = 'pointer';
-    });
-
-    this.mapInstance.on("mouseleave", "markers", () => {
-      this.mapInstance.getCanvas().style.cursor = '';
     });
   }
 
-  onMapLoaded(): Observable<boolean> {
-    return this.mapLoaded$.asObservable();
-  }
+  private handleMapClick(lngLat: maplibregl.LngLat) {
+    const coords: [number, number] = [lngLat.lng, lngLat.lat];
 
-  onMapCreated(): Observable<boolean> {
-    return this.mapCreated$.asObservable();
-  }
-
-  onMarkerClicked(): Observable<MapGeoJSONFeature[]> {
-    return this.markerClick$.asObservable();
-  }
-
-  displayStateVectors(states: Array<StateVector>): void {
-    if (this.mapInstance) {
-
-      this.markers.features = states
-        .filter(state => state.longitude && state.latitude)
-        .map(state => this.convertStateVectorToGeoJson(state));
-
-      const source: GeoJSONSource = <GeoJSONSource>this.mapInstance.getSource('markers');
-
-      source.setData(this.markers);
+    if (!this.startPoint()) {
+      // Erster Klick = Startpunkt
+      this.startPoint.set(coords);
+      this.startMarker = new maplibregl.Marker({ color: '#2ecc71' })
+        .setLngLat(lngLat)
+        .addTo(this.map!);
+    } else if (!this.endPoint()) {
+      // Zweiter Klick = Endpunkt
+      this.endPoint.set(coords);
+      this.endMarker = new maplibregl.Marker({ color: '#e74c3c' })
+        .setLngLat(lngLat)
+        .addTo(this.map!);
+    } else {
+      // Dritter Klick = Reset und neuer Start
+      this.resetRouting();
+      this.handleMapClick(lngLat);
     }
   }
 
-  selectStateVectors(selected: Array<string>) {
-    if (this.mapInstance) {
-      this.mapInstance.setFilter('markers-highlight', ['in', ["get", "flight.icao24"], ['literal', selected]], { validate: true });
-    }
+  resetRouting() {
+    this.startPoint.set(null);
+    this.endPoint.set(null);
+    this.startMarker?.remove();
+    this.endMarker?.remove();
+    // Route auf der Karte löschen
+    const source = this.map?.getSource('route') as maplibregl.GeoJSONSource;
+    source?.setData({ type: 'FeatureCollection', features: [] });
   }
 
-  private convertStateVectorToGeoJson(stateVector: StateVector): GeoJSON.Feature<GeoJSON.Point> {
-    const feature: GeoJSON.Feature<GeoJSON.Point> = {
-      type: 'Feature',
-      properties: {
-        'flight.icao24': stateVector.icao24,
-        'flight.callsign': stateVector.callsign,
-        'flight.origin_country': stateVector.origin_country,
-        'flight.time_position': stateVector.time_position,
-        'flight.last_contact': stateVector.last_contact,
-        'flight.longitude': stateVector.longitude,
-        'flight.latitude': stateVector.longitude,
-        'flight.baro_altitude': stateVector.baro_altitude,
-        'flight.on_ground': stateVector.on_ground,
-        'flight.velocity': stateVector.velocity,
-        'flight.true_track': stateVector.true_track,
-        'flight.vertical_rate': stateVector.vertical_rate,
-        'flight.geo_altitude': stateVector.geo_altitude,
-        'flight.squawk': stateVector.squawk,
-        'flight.spi': stateVector.spi,
-        'flight.position_source': stateVector.position_source,
-      },
-      geometry: {
-        type: 'Point',
-        coordinates: [stateVector.longitude!, stateVector.latitude!] // TODO Is there always a Latitude and Longitude?
+  private setupRoutingLayers(): void {
+    if (!this.map) return;
+
+    // Add source for the routing data
+    this.map.addSource('route', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] }
+    });
+
+    // Add the visual line layer
+    this.map.addLayer({
+      id: 'route-line',
+      type: 'line',
+      source: 'route',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: {
+        'line-color': '#3887be',
+        'line-width': 5,
+        'line-opacity': 0.75
       }
-    };
-
-    if (stateVector.true_track) {
-      if (feature.properties) {
-        feature.properties['icon_rotate'] = stateVector.true_track;
-      }
-    }
-
-    return feature;
+    });
   }
 
-  destroyMap() {
-    if (this.mapInstance) {
-      this.mapInstance.remove();
+  /**
+   * Updates the map with a new GeoJSON route
+   */
+  setRoute(geojson: any): void {
+    if (!this.map) return;
+
+    const source = this.map?.getSource('route') as maplibregl.GeoJSONSource;
+    if (!source || !geojson.features.length) return;
+
+    source.setData(geojson);
+
+    // Calculate bounds to focus the route
+    const bounds = new maplibregl.LngLatBounds();
+    geojson.features.forEach((feature: any) => {
+      if (feature.geometry.type === 'LineString') {
+        feature.geometry.coordinates.forEach((coord: [number, number]) => {
+          bounds.extend(coord);
+        });
+      }
+    });
+
+    this.map?.fitBounds(bounds, { padding: 40, duration: 1000 });
+  }
+
+  destroyMap(): void {
+    if (this.map) {
+      this.map.remove();
     }
   }
 }
