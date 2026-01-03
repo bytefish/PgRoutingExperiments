@@ -1,15 +1,52 @@
+networks:
+  services:
+
 services:
   db:
     build:
       context: .
-      dockerfile: ./docker/Dockerfile
+      dockerfile: ./docker/postgis/Dockerfile
     container_name: ${CONTAINER_NAME}
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASS}
       POSTGRES_DB: ${DB_NAME}
+    profiles:  ["db", "dev"]
     ports:
       - "5432:5432"
     volumes:
-      - "./docker-data/postgis:/var/lib/postgresql/data"
+      - "./docker/docker-data/postgis:/var/lib/postgresql/data"
       - ${PBF_LOCAL_FOLDER}:/osm_import:ro
+  pgrouting-api:
+    container_name: routing-api
+    build:
+      context: .
+      dockerfile: ./docker/pgrouting-api/Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Docker
+      - ASPNETCORE_HTTPS_PORTS=5000
+      - ASPNETCORE_Kestrel__Certificates__Default__Path=/https/aspnetapp.pfx
+      - ASPNETCORE_Kestrel__Certificates__Default__Password=SuperStrongPassword
+    profiles:  ["api", "dev"]
+    ports:
+      - "5000:5000"
+    volumes:
+      - ~/.aspnet/https:/https:ro
+      - ${APPDATA}/Microsoft/UserSecrets:/root/.microsoft/usersecrets:ro
+      - ./docker/pgrouting-tiles:/pgrouting-tiles
+  pgrouting-web:
+    container_name: routing-web
+    build:
+      context: .
+      dockerfile: ./docker/pgrouting-web/Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Docker
+      - ASPNETCORE_HTTPS_PORTS=5001
+      - ASPNETCORE_Kestrel__Certificates__Default__Path=/https/aspnetapp.pfx
+      - ASPNETCORE_Kestrel__Certificates__Default__Password=SuperStrongPassword
+    profiles:  ["web", "dev"]
+    ports:
+      - "5001:5001"
+    volumes:
+      - ~/.aspnet/https:/https:ro      
+      - ${APPDATA}/Microsoft/UserSecrets:/root/.microsoft/usersecrets:ro
