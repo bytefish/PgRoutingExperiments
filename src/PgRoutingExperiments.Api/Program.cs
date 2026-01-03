@@ -1,24 +1,25 @@
 ﻿// Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using Microsoft.AspNetCore.Cors.Infrastructure;
+using OpenSkyRestClient;
+using PgRoutingExperiments.Api.Options;
+using PgRoutingExperiments.Api.Services;
+using Serilog;
 using Serilog.Filters;
 using Serilog.Sinks.SystemConsole.Themes;
-using Serilog;
-using OpenSkyRestClient;
-using Microsoft.AspNetCore.Cors.Infrastructure;
-using PgRoutingExperiments.Api.Services;
-using PgRoutingExperiments.Api.Options;
+using System.Text.Json;
 
 public partial class Program
 {
     private static async Task Main(string[] args)
-    {
-        // We will log to %LocalAppData%/GitClub to store the Logs, so it doesn't need to be configured 
+    {c
+        // We will log to %LocalAppData%/PgRouting to store the Logs, so it doesn't need to be configured 
         // to a different path, when you run it on your machine.
-        string logDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GitClub");
+        string logDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PgRouting");
 
         // We are writing with RollingFileAppender using a daily rotation, and we want to have the filename as 
         // as "GitClub-{Date}.log", the date will be set by Serilog automagically.
-        string logFilePath = Path.Combine(logDirectory, "OpenSkyFlightTracker-.log");
+        string logFilePath = Path.Combine(logDirectory, "PgRoutingExample-.log");
 
         // Configure the Serilog Logger. This Serilog Logger will be passed 
         // to the Microsoft.Extensions.Logging LoggingBuilder using the 
@@ -45,7 +46,6 @@ public partial class Program
             // Logging
             builder.Services.AddLogging(loggingBuilder => loggingBuilder.AddSerilog(dispose: true));
 
-
             // CORS
             builder.Services.AddCors(options =>
             {
@@ -65,11 +65,14 @@ public partial class Program
                     .AllowCredentials());
             });
 
+            builder.Services.ConfigureHttpJsonOptions(options => {
+                options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+            });
+
             // Options
             builder.Services.Configure<ApplicationOptions>(builder.Configuration.GetSection("Application"));
 
             // Infrastructure (Tileserver)
-            builder.Services.AddSingleton<OpenSkyClient>();
             builder.Services.AddSingleton<MbTilesService>();
 
             // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
