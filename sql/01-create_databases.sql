@@ -20,8 +20,15 @@ CREATE TABLE road_segments (
     speed_limit_kmh INTEGER,
     tags hstore,
     geom GEOMETRY(LineString, 4326),
-    source INTEGER, -- Wird von pgr_createTopology befüllt
-    target INTEGER  -- Wird von pgr_createTopology befüllt
+    source INTEGER, 
+    target INTEGER 
+    length_m DOUBLE PRECISION,
+    cost_car DOUBLE PRECISION,
+    reverse_cost_car DOUBLE PRECISION,
+    cost_bike DOUBLE PRECISION,
+    reverse_cost_bike DOUBLE PRECISION,
+    cost_walk DOUBLE PRECISION,
+    reverse_cost_walk DOUBLE PRECISION
 );
 
 CREATE TABLE traffic_lights (
@@ -110,6 +117,45 @@ WHERE ctid IN (
         FROM traffic_lights
     ) t WHERE t.rn > 1
 );
+
+-----------------------------------------------------
+-- Calculate the Road Segment Length
+-----------------------------------------------------
+UPDATE road_segments SET length_m = ST_Length(geom::geography);
+
+-----------------------------------------------------
+-- Calculate Routing Costs for Cars
+-----------------------------------------------------
+UPDATE road_segments SET 
+    cost_car = length_m / (NULLIF(speed_limit_kmh, 0) / 3.6),
+    reverse_cost_car = CASE 
+        WHEN (tags -> 'oneway') IN ('yes', '1', 'true') THEN -1 
+        ELSE length_m / (NULLIF(speed_limit_kmh, 0) / 3.6) 
+    END;
+
+-----------------------------------------------------
+-- Calculate Routing Costs for Bikes
+-----------------------------------------------------
+UPDATE road_segments SET 
+    cost_bike = length_m / (15.0 / 3.6),
+    reverse_cost_bike = length_m / (15.0 / 3.6),
+    cost_walk = length_m / (5.0 / 3.6),
+    reverse_cost_walk = length_m / (5.0 / 3.6);
+
+-----------------------------------------------------
+-- Add a Penalty for Traffic Lights
+-----------------------------------------------------
+UPDATE road_segments r SET 
+    cost_car = cost_car + 20
+FROM traffic_lights tl 
+WHERE ST_DWithin(ST_EndPoint(r.geom), tl.geom, 0.00001) 
+AND tl.is_pedestrian_crossing_light = FALSE;
+
+UPDATE road_segments r SET 
+    cost_bike = cost_bike + 15,
+    cost_walk = cost_walk + 15
+FROM traffic_lights tl 
+WHERE ST_DWithin(ST_EndPoint(r.geom), tl.geom, 0.00001);
 
 -----------------------------------------------------
 -- Create indices for faster lookups
