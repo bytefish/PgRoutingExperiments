@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using PgRoutingExperiments.Api.Options;
+using System.Text.Json;
 
 namespace PgRoutingExperiments.Api.Controllers
 {
@@ -46,7 +47,7 @@ namespace PgRoutingExperiments.Api.Controllers
                 dynamic features = rows.Select(row => new
                 {
                     type = "Feature",
-                    geometry = row.geometry,
+                    geometry = JsonDocument.Parse(row.geometry).RootElement,
                     properties = new
                     {
                         row.seq,
