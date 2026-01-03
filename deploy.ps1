@@ -18,19 +18,37 @@ Write-Host "--- Orchestrating Infrastructure ---" -ForegroundColor Cyan
 docker-compose up -d
 
 # --- WAIT FOR DB ---
-Write-Host "Waiting for database to be ready..."
+Write-Host "Waiting for PostGIS to be fully initialized..." -ForegroundColor Gray
 
-# We use no -u flag for docker (defaults to root) and -U for the psql client
-while (!(docker exec $DB_CONFIG.CONTAINER_NAME pg_isready -U $env:DB_USER)) { 
-    Start-Sleep -Seconds 2 
+$maxAttempts = 30
+$attempt = 0
+$isPostGisReady = $false
+
+while (!$isPostGisReady -and $attempt -lt $maxAttempts) {
+    
+    $checkPostGis = docker exec $DB_CONFIG.CONTAINER_NAME psql -d $env:DB_NAME -U $env:DB_USER -tAc "SELECT postgis_full_version();" 2>$null
+    
+    if ($lastExitCode -eq 0 -and $checkPostGis -like "*POSTGIS*") {
+        $isPostGisReady = $true
+        Write-Host "PostGIS is ready!" -ForegroundColor Green
+    } else {
+        $attempt++
+        Write-Host "PostGIS not ready yet (Attempt $attempt/$maxAttempts)..." -ForegroundColor Yellow
+        Start-Sleep -Seconds 3
+    }
+}
+
+if (!$isPostGisReady) {
+    Write-Error "PostGIS failed to initialize within the expected time."
+    exit 1
 }
 
 # DATABASE PREPARATION ---
 Write-Host "--- Preparing Extensions ---" -ForegroundColor Cyan
 # Ensure the database exists
-docker exec $DB_CONFIG.CONTAINER_NAME psql -U $env:DB_USER -d postgres -c "SELECT 1 FROM pg_database WHERE datname = '$($env:DB_NAME)'" | Select-String "1" > $null
+docker exec $DB_CONFIG.CONTAINER_NAME psql -U $env:DB_USER -d  $env:DB_NAME -c "SELECT 1 FROM pg_database WHERE datname = '$($env:DB_NAME)'" | Select-String "1" > $null
 if ($lastExitCode -ne 0) {
-    docker exec $DB_CONFIG.CONTAINER_NAME psql -U $env:DB_USER -d postgres -c "CREATE DATABASE $($env:DB_NAME);"
+    docker exec $DB_CONFIG.CONTAINER_NAME psql -U $env:DB_USER -d $env:DB_NAME -c "CREATE DATABASE $($env:DB_NAME);"
 }
 
 # Create extensions inside the target database

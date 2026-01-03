@@ -12,7 +12,7 @@ using System.Text.Json;
 public partial class Program
 {
     private static async Task Main(string[] args)
-    {c
+    {
         // We will log to %LocalAppData%/PgRouting to store the Logs, so it doesn't need to be configured 
         // to a different path, when you run it on your machine.
         string logDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PgRouting");
