@@ -1,19 +1,13 @@
-import { APP_INITIALIZER, ApplicationConfig } from '@angular/core';
+import { ApplicationConfig, inject, provideAppInitializer } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { AppSettingsService } from './services/app-settings.service';
-
-export function initializeApp(appSettingsService: AppSettingsService) {
-  return () => appSettingsService.loadAppSettings();
-}
 
 export const appConfig: ApplicationConfig = {
   providers: [
     provideHttpClient(),
-    {
-      provide: APP_INITIALIZER,
-      useFactory: initializeApp,
-      deps: [AppSettingsService],
-      multi: true
-    }
+    provideAppInitializer(() => {
+        const settingsService = inject(AppSettingsService);
+        return settingsService.loadAppSettings();
+    })
   ]
 };
