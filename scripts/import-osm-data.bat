@@ -11,7 +11,7 @@ set OSM_PBF="C:\Users\philipp\Downloads\muenster-regbez-latest.osm.pbf"
 
 SET DB_USER=postgis
 SET DB_PASSWD=postgis
-set DB_NAME=flinkjam
+set DB_NAME=routing
 set DB_HOST=localhost
 set DB_PORT=5432
 SET CACHE_FILE="./flat_nodes.cache"
