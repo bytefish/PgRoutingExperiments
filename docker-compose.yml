@@ -1,17 +1,15 @@
-version: '3.8'
-
 services:
   db:
     build:
       context: .
       dockerfile: ./docker/Dockerfile
-    container_name: postgis_db
+    container_name: ${CONTAINER_NAME}
     environment:
-      POSTGRES_USER: postgis
-      POSTGRES_PASSWORD: postgis
-      POSTGRES_DB: routing
-    volumes:
-      - "./docker-data/postgis:/var/lib/postgresql/data"
-      - "./sql/01-create_databases.sql:/docker-entrypoint-initdb.d/01-create_databases.sql"
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
     ports:
       - "5432:5432"
+    volumes:
+      - "./docker-data/postgis:/var/lib/postgresql/data"
+      - ${PBF_LOCAL_FOLDER}:/osm_import:ro
