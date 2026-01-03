@@ -12,7 +12,6 @@ services:
       POSTGRES_DB: routing
     volumes:
       - "./docker-data/postgis:/var/lib/postgresql/data"
-      - "./sql/01-enable-extensions.sql:/docker-entrypoint-initdb.d/20-enable-extensions.sql"
-      - "./sql/02-create_tables.sql:/docker-entrypoint-initdb.d/30-create_tables.sql"
+      - "./sql/01-create_databases.sql:/docker-entrypoint-initdb.d/01-create_databases.sql"
     ports:
       - "5432:5432"
