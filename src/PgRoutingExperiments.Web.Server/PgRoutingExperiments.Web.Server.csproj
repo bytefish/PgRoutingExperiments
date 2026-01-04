@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
     <PropertyGroup>
-        <TargetFramework>net8.0</TargetFramework>
+        <TargetFramework>net10.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <SpaRoot>..\PgRoutingExperiments.Web.Client</SpaRoot>
@@ -10,14 +10,14 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\OpenSkyFlightTracker.Web.Client\OpenSkyFlightTracker.Web.Client.esproj">
+        <ProjectReference Include="..\PgRoutingExperiments.Web.Client\PgRoutingExperiments.Web.Client.esproj">
             <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
         </ProjectReference>
     </ItemGroup>
 
     <ItemGroup>
         <PackageReference Include="Microsoft.AspNetCore.SpaProxy">
-            <Version>8.*-*</Version>
+            <Version>10.*-*</Version>
         </PackageReference>
     </ItemGroup>
 
@@ -25,13 +25,15 @@
       <Folder Include="wwwroot\" />
     </ItemGroup>
 
+    <!--
     <ItemGroup>
         <Content Include="..\..\data\fonts\fonts.tar.xz" Link="wwwroot\fonts.tar.xz">
             <CopyToOutputDirectory>Never</CopyToOutputDirectory>
             <CopyToPublishDirectory>Never</CopyToPublishDirectory>
         </Content>
     </ItemGroup>
-
+    -->
+    
     <ItemGroup>
       <Content Update="wwwroot\README.txt">
         <CopyToOutputDirectory>Never</CopyToOutputDirectory>
