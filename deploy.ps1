@@ -6,6 +6,7 @@ $DB_CONFIG = @{
     PBF_LOCAL_FOLDER  = "C:\Users\philipp\Downloads"
     PBF_FILENAME      = "muenster-regbez-260102.osm.pbf"
     SQL_LOGIC_FILE    = "$PSScriptRoot\sql\routing_logic.sql"
+    SQL_GEOCODER_FILE = "$PSScriptRoot\sql\forward_geocoder.sql"
     CONTAINER_NAME    = "routing-db"
 }
 
@@ -74,7 +75,7 @@ if ($tableExists -ne "t") {
 
     docker exec -it $DB_CONFIG.CONTAINER_NAME osm2pgsql `
         --create --database $env:DB_NAME --username $env:DB_USER `
-        --hstore --proj 4326 --slim "/osm_import/$($env:PBF_FILENAME)"
+        --hstore-all --proj 4326 --slim "/osm_import/$($env:PBF_FILENAME)"
 } else {
     Write-Host "Table 'road_network' already exists. Skipping PBF import." -ForegroundColor Yellow
 }
@@ -87,6 +88,14 @@ if (Test-Path $DB_CONFIG.SQL_LOGIC_FILE) {
 } else {
     Write-Warning "SQL Logic file not found!"
 }
+# --- APPLY GEOCODER ---
+#Write-Host "--- Applying Geocoder Logic & Functions ---" -ForegroundColor Cyan
+#if (Test-Path $DB_CONFIG.SQL_GEOCODER_FILE) {
+#    docker cp $DB_CONFIG.SQL_GEOCODER_FILE "$($DB_CONFIG.CONTAINER_NAME):/forward_geocoder.sql"
+#    docker exec $DB_CONFIG.CONTAINER_NAME psql -d $env:DB_NAME -U $env:DB_USER -f /forward_geocoder.sql
+#} else {
+#    Write-Warning "SQL Geocoder file not found!"
+#}
 
 Write-Host "--- DEPLOYMENT FINISHED ---" -ForegroundColor Green
 Write-Host "Database: $($env:DB_NAME) | User: $($env:DB_USER)"
