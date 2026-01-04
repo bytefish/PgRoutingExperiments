@@ -6,7 +6,7 @@ $DB_CONFIG = @{
     PBF_LOCAL_FOLDER  = "C:\Users\philipp\Downloads"
     PBF_FILENAME      = "muenster-regbez-260102.osm.pbf"
     SQL_LOGIC_FILE    = "$PSScriptRoot\sql\routing_logic.sql"
-    CONTAINER_NAME    = "muenster_routing"
+    CONTAINER_NAME    = "routing-db"
 }
 
 # Safely set environment variables so Docker Compose can read them
@@ -15,7 +15,7 @@ foreach ($key in $DB_CONFIG.Keys) {
 }
 
 Write-Host "--- Orchestrating Infrastructure ---" -ForegroundColor Cyan
-docker-compose up -d
+docker-compose --profile dev up -d
 
 # --- WAIT FOR DB ---
 Write-Host "Waiting for PostGIS to be fully initialized..." -ForegroundColor Gray

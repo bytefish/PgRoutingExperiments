@@ -16,6 +16,10 @@
         "build": {
           "builder": "@angular/build:application",
           "options": {
+            "outputPath": {
+              "base": "../PgRoutingExperiments.Web.Server/wwwroot",
+              "browser": ""
+            },
             "browser": "src/main.ts",
             "tsConfig": "tsconfig.app.json",
             "assets": [ "src/assets" ],

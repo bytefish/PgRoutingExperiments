@@ -6,11 +6,11 @@ services:
     build:
       context: .
       dockerfile: ./docker/postgis/Dockerfile
-    container_name: ${CONTAINER_NAME-routing}
+    container_name: ${CONTAINER_NAME-routing-db}
     environment:
       POSTGRES_USER: ${DB_USER-postgis}
       POSTGRES_PASSWORD: ${DB_PASS-postgis}
-      POSTGRES_DB: ${DB_NAME-routing}
+      POSTGRES_DB: ${DB_NAME-routing_db}
     profiles:  ["db", "dev"]
     ports:
       - "5432:5432"
