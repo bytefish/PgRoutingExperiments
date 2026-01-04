@@ -1,13 +1,17 @@
-// Erweiterung für den MapService (angular 18+)
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
 import { Injectable, signal, NgZone, inject } from '@angular/core';
 import * as maplibregl from 'maplibre-gl';
 
-@Injectable({ providedIn: 'root' })
+@Injectable({
+  providedIn: 'root',
+})
 export class MapService {
   private readonly zone = inject(NgZone);
   private map?: maplibregl.Map;
 
-  // Signale für die ausgewählten Punkte
+  // Status-Signale für die UI
+  readonly isLoaded = signal(false);
   readonly startPoint = signal<[number, number] | null>(null);
   readonly endPoint = signal<[number, number] | null>(null);
 
@@ -17,87 +21,46 @@ export class MapService {
   buildMap(container: HTMLElement, style: any, center: any, zoom: any): void {
     this.zone.runOutsideAngular(() => {
       this.map = new maplibregl.Map({
-        container, style, center, zoom
+        container,
+        style: style || 'https://demotiles.maplibre.org/style.json',
+        center: center || [7.628, 51.96],
+        zoom: zoom || 12,
+        attributionControl: false
       });
 
       this.map.on('load', () => {
-        this.setupRoutingLayers();
-        this.setupBBoxLayer();
+        this.setupLayers();
+        this.zone.run(() => this.isLoaded.set(true));
       });
 
-      // Klick-Event zur Auswahl der Punkte
       this.map.on('click', (e) => {
         this.zone.run(() => this.handleMapClick(e.lngLat));
       });
     });
   }
 
-  private handleMapClick(lngLat: maplibregl.LngLat) {
-    const coords: [number, number] = [lngLat.lng, lngLat.lat];
-
-    if (!this.startPoint()) {
-      // First Click = Starting Point
-      this.startPoint.set(coords);
-      this.startMarker = new maplibregl.Marker({ color: '#2ecc71' })
-        .setLngLat(lngLat)
-        .addTo(this.map!);
-    } else if (!this.endPoint()) {
-      // Second Click = End Point
-      this.endPoint.set(coords);
-      this.endMarker = new maplibregl.Marker({ color: '#e74c3c' })
-        .setLngLat(lngLat)
-        .addTo(this.map!);
-    } else {
-      // Third Click = Reset Points
-      this.resetRouting();
-      this.handleMapClick(lngLat);
-    }
-  }
-
-  resetRouting() {
-    this.startPoint.set(null);
-    this.endPoint.set(null);
-    this.startMarker?.remove();
-    this.endMarker?.remove();
-    // Remove from Route
-    const source = this.map?.getSource('route') as maplibregl.GeoJSONSource;
-    source?.setData({ type: 'FeatureCollection', features: [] });
-  }
-
-  private setupRoutingLayers(): void {
+  private setupLayers(): void {
     if (!this.map) return;
 
-    // Add source for the routing data
+    // 1. Route Layer
     this.map.addSource('route', {
       type: 'geojson',
       data: { type: 'FeatureCollection', features: [] }
     });
 
-    // Add the visual line layer
     this.map.addLayer({
       id: 'route-line',
       type: 'line',
       source: 'route',
       layout: { 'line-join': 'round', 'line-cap': 'round' },
       paint: {
-        'line-color': '#3887be',
+        'line-color': '#007cbf',
         'line-width': 5,
-        'line-opacity': 0.75
+        'line-opacity': 0.8
       }
     });
-  }
 
-  toggleBBoxVisibility(visible: boolean) {
-    if (!this.map || !this.map.getLayer('bbox-layer')) return;
-
-    const visibility = visible ? 'visible' : 'none';
-
-    this.map.setLayoutProperty('bbox-layer', 'visibility', visibility);
-  }
-
-  private setupBBoxLayer() {
-    if (!this.map) return;
-
+    // 2. Debug BBox Layer
     this.map.addSource('debug-bbox', {
       type: 'geojson',
       data: { type: 'FeatureCollection', features: [] }
@@ -107,9 +70,7 @@ export class MapService {
       id: 'bbox-layer',
       type: 'fill',
       source: 'debug-bbox',
-      layout: {
-        'visibility': 'none'
-      },
+      layout: { 'visibility': 'none' },
       paint: {
         'fill-color': '#ff0000',
         'fill-opacity': 0.1,
@@ -118,11 +79,62 @@ export class MapService {
     });
   }
 
-  showDebugBBox(bbox: any) {
+  /**
+   * Setzt einen Punkt manuell (z.B. vom Geocoder)
+   */
+  setManualPoint(coords: [number, number], type: 'start' | 'end' = 'start'): void {
+    const lngLat = new maplibregl.LngLat(coords[0], coords[1]);
+
+    if (type === 'start') {
+      this.startPoint.set(coords);
+      this.startMarker?.remove();
+      this.startMarker = new maplibregl.Marker({ color: '#2ecc71' }).setLngLat(lngLat).addTo(this.map!);
+    } else {
+      this.endPoint.set(coords);
+      this.endMarker?.remove();
+      this.endMarker = new maplibregl.Marker({ color: '#e74c3c' }).setLngLat(lngLat).addTo(this.map!);
+    }
+
+    this.map?.flyTo({ center: lngLat, zoom: 15 });
+  }
+
+  private handleMapClick(lngLat: maplibregl.LngLat): void {
+    const coords: [number, number] = [lngLat.lng, lngLat.lat];
+
+    if (!this.startPoint()) {
+      this.setManualPoint(coords, 'start');
+    } else if (!this.endPoint()) {
+      this.setManualPoint(coords, 'end');
+    } else {
+      this.resetRouting();
+      this.setManualPoint(coords, 'start');
+    }
+  }
+
+  setRoute(geojson: any): void {
+    const source = this.map?.getSource('route') as maplibregl.GeoJSONSource;
+    if (source && geojson.features.length > 0) {
+      source.setData(geojson);
+
+      const bounds = new maplibregl.LngLatBounds();
+      geojson.features.forEach((f: any) => {
+        f.geometry.coordinates.forEach((c: any) => {
+          // Prüfen ob verschachtelt (LineString) oder einzeln (Point)
+          if (Array.isArray(c[0])) {
+            c.forEach((cc: any) => bounds.extend(cc));
+          } else {
+            bounds.extend(c);
+          }
+        });
+      });
+      this.map?.fitBounds(bounds, { padding: 50 });
+    }
+  }
+
+  showDebugBBox(bbox: any): void {
     const source = this.map?.getSource('debug-bbox') as maplibregl.GeoJSONSource;
     if (!source) return;
 
-    // Erstelle ein Polygon aus den 4 Ecken
     const polygon = {
       type: 'Feature',
       geometry: {
@@ -132,41 +144,33 @@ export class MapService {
           [bbox.maxLon, bbox.minLat],
           [bbox.maxLon, bbox.maxLat],
           [bbox.minLon, bbox.maxLat],
-          [bbox.minLon, bbox.minLat] // Polygon schließen
+          [bbox.minLon, bbox.minLat]
         ]]
       }
     };
-
     source.setData({ type: 'FeatureCollection', features: [polygon as any] });
   }
 
-  /**
-   * Updates the map with a new GeoJSON route
-   */
-  setRoute(geojson: any): void {
-    if (!this.map) return;
+  toggleBBoxVisibility(visible: boolean): void {
+    if (this.map?.getLayer('bbox-layer')) {
+      this.map.setLayoutProperty('bbox-layer', 'visibility', visible ? 'visible' : 'none');
+    }
+  }
 
-    const source = this.map?.getSource('route') as maplibregl.GeoJSONSource;
-    if (!source || !geojson.features.length) return;
+  getCenter(): maplibregl.LngLat | undefined {
+    return this.map?.getCenter();
+  }
 
-    source.setData(geojson);
-
-    // Calculate bounds to focus the route
-    const bounds = new maplibregl.LngLatBounds();
-    geojson.features.forEach((feature: any) => {
-      if (feature.geometry.type === 'LineString') {
-        feature.geometry.coordinates.forEach((coord: [number, number]) => {
-          bounds.extend(coord);
-        });
-      }
-    });
-
-    this.map?.fitBounds(bounds, { padding: 40, duration: 1000 });
+  resetRouting(): void {
+    this.startPoint.set(null);
+    this.endPoint.set(null);
+    this.startMarker?.remove();
+    this.endMarker?.remove();
+    (this.map?.getSource('route') as maplibregl.GeoJSONSource)?.setData({ type: 'FeatureCollection', features: [] });
+    (this.map?.getSource('debug-bbox') as maplibregl.GeoJSONSource)?.setData({ type: 'FeatureCollection', features: [] });
   }
 
   destroyMap(): void {
-    if (this.map) {
-      this.map.remove();
-    }
+    this.map?.remove();
   }
 }

@@ -6,6 +6,8 @@ import { MapComponent } from './components/map.component';
 import { MapService } from './services/map.service';
 import { RoutingService } from './services/routing.service';
 import { AppSettingsService } from './services/app-settings.service';
+import { debounceTime, distinctUntilChanged, of, Subject, switchMap } from 'rxjs';
+import { SearchService } from './services/search.service';
 
 @Component({
   selector: 'app-root',
@@ -14,6 +16,23 @@ import { AppSettingsService } from './services/app-settings.service';
   template: `
     <div class="sidebar">
       <h3>PgRoutingExperiments</h3>
+
+      <div class="search-box">
+        <input type="text"
+              placeholder="Search address (e.g. Breul 43)..."
+              (input)="onSearchInput($event)">
+
+        @if (searchResults().length > 0) {
+          <ul class="autocomplete-results">
+            @for (res of searchResults(); track res) {
+              <li (click)="selectAddress(res)">
+                <span class="street">{{ res.street }} {{ res.housenumber }}</span>
+                <span class="city">{{ res.plz }} {{ res.city }}</span>
+              </li>
+            }
+          </ul>
+        }
+      </div>
 
       <div class="mode-selector">
         <label>Transport Mode:</label>
@@ -123,13 +142,44 @@ import { AppSettingsService } from './services/app-settings.service';
   cursor: pointer;
 }
 
+.search-box { position: relative; margin-bottom: 15px; }
+.search-box input { width: 100%; padding: 10px; border-radius: 4px; border: 1px solid #ccc; }
+
+.autocomplete-results {
+  position: absolute;
+  top: 100%; left: 0; right: 0;
+  background: white;
+  border: 1px solid #ccc;
+  border-top: none;
+  z-index: 100;
+  max-height: 300px;
+  overflow-y: auto;
+  list-style: none;
+  padding: 0; margin: 0;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.autocomplete-results li {
+  padding: 10px;
+  cursor: pointer;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  flex-direction: column;
+}
+
+.autocomplete-results li:hover { background: #f0f7ff; }
+.autocomplete-results .street { font-weight: bold; font-size: 0.9em; }
+.autocomplete-results .city { font-size: 0.8em; color: #666; }
+
     .hint { font-size: 0.85em; color: #666; font-style: italic; margin-bottom: 15px; }
   `]
 })
 export class App {
   // Services
   protected readonly map = inject(MapService);
-  private readonly routing = inject(RoutingService);
+
+  private readonly routingService = inject(RoutingService);
+  private readonly searchService = inject(SearchService);
 
   // Get settings
   protected readonly settings = inject(AppSettingsService).getAppSettings();
@@ -142,7 +192,7 @@ export class App {
 
   // Signals
   readonly selectedMode = signal<string>('bike');
-  
+
   readonly lastTravelTime = signal<string | null>(null);
 
   readonly initialCenter = signal<[number, number]>([
@@ -155,6 +205,35 @@ export class App {
   readonly initialZoom = signal<number>(this.settings.mapOptions.mapInitialZoom);
 
   readonly styleUrl = signal<string>(this.settings.mapOptions.mapStyleUrl);
+
+  readonly searchQuery = signal<string>('');
+  readonly searchResults = signal<any[]>([]);
+  private searchSubject = new Subject<string>();
+
+constructor() {
+  // Setup der reaktiven Suche
+  this.searchSubject.pipe(
+    debounceTime(300), // Warte 300ms
+    distinctUntilChanged(), // Nur wenn Text sich geändert hat
+    switchMap(term => {
+      if (term.length < 3) return of([]); // Erst ab 3 Zeichen suchen
+      const center = this.map.getCenter(); // Optional: Aktuelle Kartenmitte für Proximity
+      return this.searchService.search(term, center?.lat, center?.lng);
+    })
+  ).subscribe(results => this.searchResults.set(results));
+}
+
+onSearchInput(event: Event) {
+  const value = (event.target as HTMLInputElement).value;
+  this.searchSubject.next(value);
+}
+
+selectAddress(address: any) {
+  this.searchResults.set([]); // Liste schließen
+
+  const coords: [number, number] = [address.lon, address.lat];
+  this.map.setManualPoint(coords); // Neue Methode im MapService
+}
 
   onModeChange(event: Event) {
     const select = event.target as HTMLSelectElement;
@@ -169,10 +248,10 @@ export class App {
     const end = this.map.endPoint();
 
     if (start && end) {
-      this.routing.getRoute(this.selectedMode(), start, end).subscribe({
+      this.routingService.getRoute(this.selectedMode(), start, end).subscribe({
         next: (geojson: any) => {
           this.map.setRoute(geojson);
-          
+
           if (geojson.debugBBox) {
             this.map.showDebugBBox(geojson.debugBBox);
           }

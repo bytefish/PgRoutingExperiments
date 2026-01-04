@@ -39,11 +39,11 @@ namespace PgRoutingExperiments.Api.Controllers
             // 2. Query the database using our optimized function
             const string sql = @"
                     SELECT 
-                        seq, 
-                        display_name as name, 
-                        road_type as type, 
-                        seconds, 
-                        ST_AsGeoJSON(geom)::json as geometry 
+                        out_seq     AS ""seq"", 
+                        out_name    AS ""name"", 
+                        out_type    AS ""type"", 
+                        out_seconds AS ""seconds"", 
+                        ST_AsGeoJSON(out_geom)::json as geometry 
                     FROM get_route(@mode, @startLon, @startLat, @endLon, @endLat, @bbox_buffer)";
 
             try
