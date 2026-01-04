@@ -11,3 +11,4 @@ packages/
 *.db
 docker/opensky-tiles/*
 docker/docker-data
+docker/pgrouting-tiles
