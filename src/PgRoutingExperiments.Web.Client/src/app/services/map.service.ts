@@ -2,6 +2,7 @@
 
 import { Injectable, signal, NgZone, inject } from '@angular/core';
 import * as maplibregl from 'maplibre-gl';
+import { Subject } from 'rxjs';
 
 @Injectable({
   providedIn: 'root',
@@ -10,10 +11,13 @@ export class MapService {
   private readonly zone = inject(NgZone);
   private map?: maplibregl.Map;
 
-  // Status-Signale für die UI
+  private mapMoveSubject = new Subject<void>();
+  mapMove$ = this.mapMoveSubject.asObservable();
+
   readonly isLoaded = signal(false);
   readonly startPoint = signal<[number, number] | null>(null);
   readonly endPoint = signal<[number, number] | null>(null);
+  readonly activeInput = signal<'start' | 'end'>('start');
 
   private startMarker?: maplibregl.Marker;
   private endMarker?: maplibregl.Marker;
@@ -27,6 +31,8 @@ export class MapService {
         zoom: zoom || 12,
         attributionControl: false
       });
+
+      this.map.on('moveend', () => this.mapMoveSubject.next());
 
       this.map.on('load', () => {
         this.setupLayers();
@@ -79,23 +85,97 @@ export class MapService {
     });
   }
 
-  /**
-   * Setzt einen Punkt manuell (z.B. vom Geocoder)
-   */
-  setManualPoint(coords: [number, number], type: 'start' | 'end' = 'start'): void {
-    const lngLat = new maplibregl.LngLat(coords[0], coords[1]);
+  getMapBounds(): maplibregl.LngLatBounds | undefined {
+    if (!this.map)
+      return undefined;
 
-    if (type === 'start') {
-      this.startPoint.set(coords);
-      this.startMarker?.remove();
-      this.startMarker = new maplibregl.Marker({ color: '#2ecc71' }).setLngLat(lngLat).addTo(this.map!);
+    return this.map.getBounds();
+  }
+
+  showIslandDebug(islands: any[]) {
+    // Wir definieren das Objekt explizit als FeatureCollection
+    const geojson: any = {
+      type: 'FeatureCollection',
+      features: islands.map(i => ({
+        type: 'Feature',
+        geometry: typeof i.geometry === 'string' ? JSON.parse(i.geometry) : i.geometry,
+        properties: {
+          component: i.component_id,
+          id: i.id
+        }
+      }))
+    };
+
+    const source = this.map?.getSource('islands') as maplibregl.GeoJSONSource;
+
+    if (source) {
+      source.setData(geojson);
     } else {
-      this.endPoint.set(coords);
-      this.endMarker?.remove();
-      this.endMarker = new maplibregl.Marker({ color: '#e74c3c' }).setLngLat(lngLat).addTo(this.map!);
+      this.map?.addSource('islands', {
+        type: 'geojson',
+        data: geojson // Jetzt passt der Typ
+      });
+
+      this.map?.addLayer({
+        id: 'islands-layer',
+        type: 'line',
+        source: 'islands',
+        paint: {
+          'line-color': '#ff4d4d',
+          'line-width': 2.5,
+          'line-dasharray': [2, 1]
+        }
+      });
+    }
+  }
+
+  removeIslandDebug(): void {
+    if (!this.map)
+      return;
+
+    if (this.map.getLayer('islands-layer')) {
+      this.map.removeLayer('islands-layer');
     }
 
-    this.map?.flyTo({ center: lngLat, zoom: 15 });
+    // Dann die Datenquelle (Source) entfernen
+    if (this.map.getSource('islands')) {
+      this.map.removeSource('islands');
+    }
+  }
+
+  setManualPoint(coords: [number, number], type?: 'start' | 'end'): void {
+    const targetType = type ?? this.activeInput();
+    const lngLat = new maplibregl.LngLat(coords[0], coords[1]);
+
+  if (targetType === 'start') {
+    this.startPoint.set(coords);
+    if (!this.startMarker) {
+      this.startMarker = this.createDraggableMarker('#2ecc71', 'start');
+    }
+    this.startMarker.setLngLat(lngLat).addTo(this.map!);
+    // Auto-switch focus to end if start was just set
+    this.activeInput.set('end');
+    } else {
+      this.endPoint.set(coords);
+      if (!this.endMarker) {
+        this.endMarker = this.createDraggableMarker('#e74c3c', 'end');
+      }
+      this.endMarker.setLngLat(lngLat).addTo(this.map!);
+    }
+}
+
+  private createDraggableMarker(color: string, type: 'start' | 'end') {
+    const marker = new maplibregl.Marker({ color, draggable: true });
+
+    marker.on('dragend', () => {
+      const pos = marker.getLngLat();
+      this.zone.run(() => {
+        if (type === 'start') this.startPoint.set([pos.lng, pos.lat]);
+        else this.endPoint.set([pos.lng, pos.lat]);
+      });
+    });
+
+    return marker;
   }
 
   private handleMapClick(lngLat: maplibregl.LngLat): void {

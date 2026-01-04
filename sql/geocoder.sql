@@ -133,7 +133,7 @@ CREATE INDEX idx_city_trgm ON geocode_search_idx USING gin (city gin_trgm_ops);
 
 
 -- =========================================================================
--- Search Functions for Germany
+-- FORWARD GEOCODER
 -- =========================================================================
 CREATE OR REPLACE FUNCTION geocode_german_address(
     search_text TEXT, 
@@ -211,6 +211,40 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
-SELECT * FROM geocode_german_address('Breul');
+-- =========================================================================
+-- REVERSE GEOCODER
+-- =========================================================================
+CREATE OR REPLACE FUNCTION reverse_geocode_german_address(
+    input_lat FLOAT, 
+    input_lon FLOAT
+)
+RETURNS TABLE (
+    street TEXT,
+    housenumber TEXT,
+    plz TEXT,
+    city TEXT,
+    country TEXT,
+    distance_meters FLOAT
+) AS $$
+DECLARE
+    input_point_4326 GEOMETRY;
+BEGIN
+    -- Create the input point in the same SRID as the table (4326)
+    input_point_4326 := ST_SetSRID(ST_Point(input_lon, input_lat), 4326);
 
+    RETURN QUERY
+    SELECT 
+        idx.street, 
+        idx.housenumber, 
+        idx.plz, 
+        idx.city,
+        idx.country,
+        -- Distance calculation using geography for meter accuracy
+        ST_Distance(idx.geom::geography, input_point_4326::geography) as dist
+    FROM geocode_search_idx idx
+    -- Index-backed nearest neighbor search (pure 4326)
+    ORDER BY idx.geom <-> input_point_4326
+    LIMIT 1;
+END;
+$$ LANGUAGE plpgsql STABLE;
 

@@ -6,15 +6,23 @@ import { Observable } from "rxjs";
 import { AppSettingsService } from "./app-settings.service";
 
 @Injectable({ providedIn: 'root' })
-export class SearchService {
+export class GeocodingService {
   private readonly http = inject(HttpClient);
   private readonly settings = inject(AppSettingsService).getAppSettings();
 
-  search(query: string, lat?: number, lon?: number): Observable<any[]> {
+  geocode(query: string, lat?: number, lon?: number): Observable<any[]> {
     let params = new HttpParams().set('query', query);
     if (lat && lon) {
       params = params.set('refLat', lat).set('refLon', lon);
     }
     return this.http.get<any[]>(`${this.settings.apiUrl}/geocode`, { params });
+  }
+
+  reverseGeocode(lat: number, lon: number): Observable<any> {
+    const params = new HttpParams()
+      .set('lat', lat.toString())
+      .set('lon', lon.toString());
+
+    return this.http.get<any>(`${this.settings.apiUrl}/reverse-geocode`, { params });
   }
 }

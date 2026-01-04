@@ -83,7 +83,7 @@ CREATE INDEX idx_rn_oneway ON road_network ((tags -> 'oneway'));
 
 DO $$ BEGIN RAISE NOTICE 'Creating Topology...'; END $$;
 
-SELECT pgr_createTopology('road_network', 0.000001, 'geom', 'id');
+SELECT pgr_createTopology('road_network', 0.00001, 'geom', 'id');
 
 -- =========================================================================
 -- COST CALCULATIONS (GENERAL)
@@ -160,6 +160,30 @@ UPDATE road_network SET
     cost_walk = COALESCE(cost_walk, -1), reverse_cost_walk = COALESCE(reverse_cost_walk, -1);
 
 DO $$ BEGIN RAISE NOTICE 'Road network is fully connected and ready.'; END $$;
+
+
+-- =========================================================================
+-- DEBUG DATA
+-- =========================================================================
+DROP TABLE IF EXISTS network_islands;
+
+CREATE TABLE network_islands AS
+WITH component_analysis AS (
+    SELECT * FROM pgr_connectedComponents(
+        'SELECT id, source, target, cost_car AS cost FROM road_network WHERE source IS NOT NULL'
+    )
+)
+SELECT 
+    rn.id, 
+    rn.geom, 
+    rn.source, 
+    rn.target, 
+    ca.component AS component_id
+FROM road_network rn
+    JOIN component_analysis ca ON rn.source = ca.node; 
+
+CREATE INDEX idx_islands_comp ON network_islands(component_id);
+CREATE INDEX idx_network_islands_geom ON network_islands USING GIST (geom);
 
 -- =========================================================================
 -- FUNCTIONS
@@ -249,26 +273,29 @@ BEGIN
         ) nearby ON TRUE
         ORDER BY r.seq
     ),
-    -- 4. Access Segments: Connect user click points to the road network
+   -- 4. Access Segments: Connect user click points to the road network
     conn_start(c_seq, c_name, c_type, c_seconds, c_geom) AS (
-        -- Connection from Click Start to Snapped Point + Snapped Point to first Routing Node
+        -- Connection 0: User Click -> Point on Road (Snapped)
         SELECT 0, 'Start Access'::TEXT, 'connection'::TEXT, 
                (ST_DistanceSphere(ST_SetSRID(ST_Point(start_lon, start_lat), 4326), start_snap_pt) / walking_speed_mps)::FLOAT,
                ST_MakeLine(ST_SetSRID(ST_Point(start_lon, start_lat), 4326), start_snap_pt)
         UNION ALL
+        -- Connection 1: Snapped Point -> Nearest Vertex of the first route segment
+        -- Wir nutzen ST_ClosestPoint, um sicherzustellen, dass wir nicht diagonal zum falschen Ende springen
         SELECT 1, 'Entry'::TEXT, 'connection'::TEXT,
-               (ST_DistanceSphere(start_snap_pt, ST_StartPoint((SELECT m_geom FROM mapped_route LIMIT 1))) / walking_speed_mps)::FLOAT,
-               ST_MakeLine(start_snap_pt, ST_StartPoint((SELECT m_geom FROM mapped_route LIMIT 1)))
+               (ST_DistanceSphere(start_snap_pt, ST_ClosestPoint((SELECT m_geom FROM mapped_route ORDER BY m_seq LIMIT 1), start_snap_pt)) / walking_speed_mps)::FLOAT,
+               ST_MakeLine(start_snap_pt, ST_ClosestPoint((SELECT m_geom FROM mapped_route ORDER BY m_seq LIMIT 1), start_snap_pt))
         WHERE EXISTS (SELECT 1 FROM mapped_route)
     ),
     conn_end(c_seq, c_name, c_type, c_seconds, c_geom) AS (
-        -- Connection from last Routing Node to Snapped Point + Snapped Point to Click Destination
+        -- Connection Exit: Nearest Vertex of the last route segment -> Snapped Point
         SELECT (SELECT MAX(m_seq) + 3 FROM mapped_route), 'Exit'::TEXT, 'connection'::TEXT,
-               (ST_DistanceSphere(ST_EndPoint((SELECT m_geom FROM mapped_route ORDER BY m_seq DESC LIMIT 1)), end_snap_pt) / walking_speed_mps)::FLOAT,
-               ST_MakeLine(ST_EndPoint((SELECT m_geom FROM mapped_route ORDER BY m_seq DESC LIMIT 1)), end_snap_pt)
+               (ST_DistanceSphere(ST_ClosestPoint((SELECT m_geom FROM mapped_route ORDER BY m_seq DESC LIMIT 1), end_snap_pt), end_snap_pt) / walking_speed_mps)::FLOAT,
+               ST_MakeLine(ST_ClosestPoint((SELECT m_geom FROM mapped_route ORDER BY m_seq DESC LIMIT 1), end_snap_pt), end_snap_pt)
         WHERE EXISTS (SELECT 1 FROM mapped_route)
         UNION ALL
-        SELECT (SELECT MAX(m_seq) + 4 FROM mapped_route), 'Destination'::TEXT, 'connection'::TEXT,
+        -- Connection Destination: Snapped Point -> User Click
+        SELECT (SELECT COALESCE(MAX(m_seq), 0) + 4 FROM mapped_route), 'Destination'::TEXT, 'connection'::TEXT,
                (ST_DistanceSphere(end_snap_pt, ST_SetSRID(ST_Point(end_lon, end_lat), 4326)) / walking_speed_mps)::FLOAT,
                ST_MakeLine(end_snap_pt, ST_SetSRID(ST_Point(end_lon, end_lat), 4326))
     )
@@ -281,3 +308,4 @@ BEGIN
     ORDER BY 1;
 END;
 $$ LANGUAGE plpgsql STABLE;
+

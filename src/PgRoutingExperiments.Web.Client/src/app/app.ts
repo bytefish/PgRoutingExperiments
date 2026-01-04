@@ -1,87 +1,103 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit, effect, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MapComponent } from './components/map.component';
 import { MapService } from './services/map.service';
 import { RoutingService } from './services/routing.service';
 import { AppSettingsService } from './services/app-settings.service';
-import { debounceTime, distinctUntilChanged, of, Subject, switchMap } from 'rxjs';
-import { SearchService } from './services/search.service';
+import { catchError, debounceTime, distinctUntilChanged, filter, of, Subject, switchMap } from 'rxjs';
+import { GeocodingService } from './services/geocoding.service';
+import { DebugService } from './services/debug.service';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 @Component({
   selector: 'app-root',
   standalone: true,
   imports: [CommonModule, MapComponent],
   template: `
-    <div class="sidebar">
-      <h3>PgRoutingExperiments</h3>
+  <div class="sidebar">
+    <div class="mode-selector">
+      <button [class.active]="selectedMode() === 'car'" (click)="selectedMode.set('car')">🚗</button>
+      <button [class.active]="selectedMode() === 'bike'" (click)="selectedMode.set('bike')">🚲</button>
+      <button [class.active]="selectedMode() === 'walk'" (click)="selectedMode.set('walk')">🚶</button>
+    </div>
 
-      <div class="search-box">
+    <div class="routing-container">
+
+      <div class="input-wrapper" [class.is-active]="mapService.activeInput() === 'start'">
+        <div class="dot start"></div>
         <input type="text"
-              placeholder="Search address (e.g. Breul 43)..."
-              (input)="onSearchInput($event)">
+              [value]="startSearchQuery()"
+              (focus)="mapService.activeInput.set('start')"
+              (input)="onInput($event, 'start')"
+              placeholder="Choose start point...">
 
-        @if (searchResults().length > 0) {
-          <ul class="autocomplete-results">
-            @for (res of searchResults(); track res) {
-              <li (click)="selectAddress(res)">
-                <span class="street">{{ res.street }} {{ res.housenumber }}</span>
-                <span class="city">{{ res.plz }} {{ res.city }}</span>
+        @if (startResults().length > 0) {
+          <ul class="autocomplete-list">
+            @for (res of startResults(); track res) {
+              <li (click)="selectLocation(res, 'start')">
+                <strong>{{ res.street }} {{ res.housenumber }}</strong>
+                <small>{{ res.plz }} {{ res.city }}</small>
               </li>
             }
           </ul>
         }
       </div>
 
-      <div class="mode-selector">
-        <label>Transport Mode:</label>
-        <select [value]="selectedMode()" (change)="onModeChange($event)">
-          @for (mode of transportModes; track mode.id) {
-            <option [value]="mode.id">{{ mode.label }}</option>
-          }
-        </select>
-      </div>
-
-      <hr />
-
-      <p class="hint">Click on the map to select start and destination.</p>
-
-      <div class="points-status">
-        <div [class.active]="map.startPoint()">
-          Start Point: {{ map.startPoint() ? 'Set ✓' : 'Not selected' }}
-        </div>
-        <div [class.active]="map.endPoint()">
-          Destination: {{ map.endPoint() ? 'Set ✓' : 'Not selected' }}
-        </div>
-      </div>
-
-      <button class="primary-btn"
-              [disabled]="!map.startPoint() || !map.endPoint()"
-              (click)="calculateRoute()">
-        Calculate Route
+      <button class="swap-btn" (click)="swapPoints()" title="Swap start and destination">
+        ⇅
       </button>
 
-      <button class="secondary-btn" (click)="map.resetRouting()">
-        Reset Map
-      </button>
+      <div class="input-wrapper" [class.is-active]="mapService.activeInput() === 'end'">
+        <div class="dot end"></div>
+        <input type="text"
+              [value]="endSearchQuery()"
+              (focus)="mapService.activeInput.set('end')"
+              (input)="onInput($event, 'end')"
+              placeholder="Choose destination...">
 
-      <div class="debug-controls">
-        <label class="checkbox-label">
-        <input type="checkbox"
-           [checked]="showBBox()"
-           (change)="onToggleBBox($event)">
-        Show Search Area (BBox)
-      </label>
-     </div>
-
-      @if (lastTravelTime()) {
-        <div class="result-info">
-          <strong>Estimated Time:</strong> {{ lastTravelTime() }}
-        </div>
-      }
+        @if (endResults().length > 0) {
+          <ul class="autocomplete-list">
+            @for (res of endResults(); track res) {
+              <li (click)="selectLocation(res, 'end')">
+                <strong>{{ res.street }} {{ res.housenumber }}</strong>
+                <small>{{ res.plz }} {{ res.city }}</small>
+              </li>
+            }
+          </ul>
+        }
+      </div>
     </div>
 
+    <div class="results-panel">
+      @if (travelTime()) {
+        <div class="time-display">
+          <span class="label">Estimated Travel Time</span>
+          <span class="value">{{ travelTime() }}</span>
+        </div>
+      }
+
+      <button class="primary-btn"
+              [disabled]="!mapService.startPoint() || !mapService.endPoint()"
+              (click)="triggerRoute()">
+        Get Directions
+      </button>
+
+      <button class="clear-btn" (click)="resetAll()">Clear Route</button>
+    </div>
+
+    <div class="debug-footer">
+      <label class="checkbox-container">
+        <input type="checkbox" [checked]="showBBox()" (change)="onToggleBBox($event)">
+        <span>Show Search BBox (Debug)</span>
+      </label>
+      <label class="checkbox-container">
+        <input type="checkbox" [checked]="showIslands()" (change)="toggleIslands($event)">
+        <span style="color: red;">⚠ Show Routing Islands</span>
+      </label>
+    </div>
+  </div>
     <maplibre-map
       class="map-container"
       [mapStyle]="settings.mapOptions.mapStyleUrl"
@@ -93,93 +109,252 @@ import { SearchService } from './services/search.service';
     :host { display: block; height: 100vh; width: 100vw; overflow: hidden; }
     .map-container { height: 100%; width: 100%; }
 
+    /* Sidebar Container */
     .sidebar {
-      position: absolute; z-index: 10; background: white;
-      padding: 20px; margin: 10px; border-radius: 8px;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.15); width: 260px;
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      width: 350px;
+      max-height: calc(100vh - 40px);
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 25px rgba(0, 0, 0, 0.15);
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     }
 
-    .mode-selector { margin-bottom: 15px; }
-    .mode-selector label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.9em; }
-    select { width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ccc; }
+    /* 1. Mode Selector */
+    .mode-selector {
+      display: flex;
+      background: #f0f0f0;
+      padding: 4px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+    }
 
-    .points-status { font-size: 0.9em; margin-bottom: 15px; }
-    .points-status div { color: #888; margin-bottom: 5px; transition: color 0.3s ease; }
-    .points-status div.active { color: #2ecc71; font-weight: bold; }
+    .mode-selector button {
+      flex: 1;
+      border: none;
+      background: transparent;
+      padding: 10px;
+      cursor: pointer;
+      font-size: 1.2rem;
+      border-radius: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .mode-selector button.active {
+      background: white;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .mode-selector button:hover:not(.active) {
+      background: rgba(255, 255, 255, 0.5);
+    }
+
+    /* 2. Routing Inputs */
+    .routing-container {
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    .input-wrapper {
+      display: flex;
+      align-items: center;
+      background: #f8f9fa;
+      border: 2px solid #f8f9fa;
+      border-radius: 8px;
+      padding: 8px 12px;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+
+    .input-wrapper.is-active {
+      background: white;
+      border-color: #007cbf;
+      box-shadow: 0 0 0 4px rgba(0, 124, 191, 0.1);
+    }
+
+    .input-wrapper input {
+      flex: 1;
+      border: none;
+      background: transparent;
+      font-size: 0.95rem;
+      padding: 4px 0;
+      color: #333;
+      outline: none;
+    }
+
+    /* Dots and Connector */
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 12px;
+      flex-shrink: 0;
+    }
+
+    .dot.start { background: #2ecc71; border: 2px solid #27ae60; }
+    .dot.end { background: #e74c3c; border: 2px solid #c0392b; }
+
+    .connector-line {
+      width: 2px;
+      height: 20px;
+      background: #ddd;
+      margin-left: 16px;
+    }
+
+    /* Swap Button */
+    .swap-btn {
+      position: absolute;
+      right: -5px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      color: #666;
+      z-index: 2;
+      transition: background 0.2s;
+    }
+
+    .swap-btn:hover {
+      background: #f0f0f0;
+      color: #333;
+    }
+
+    /* 3. Autocomplete Dropdown */
+    .autocomplete-list {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: white;
+      border-radius: 8px;
+      margin-top: 5px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+      max-height: 200px;
+      overflow-y: auto;
+      list-style: none;
+      padding: 0;
+      z-index: 100;
+    }
+
+    .autocomplete-list li {
+      padding: 10px 15px;
+      cursor: pointer;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .autocomplete-list li:hover {
+      background: #f8faff;
+    }
+
+    .autocomplete-list li strong {
+      display: block;
+      font-size: 0.9rem;
+      color: #333;
+    }
+
+    .autocomplete-list li small {
+      font-size: 0.8rem;
+      color: #888;
+    }
+
+    /* 4. Results & Action Panel */
+    .results-panel {
+      margin-top: 20px;
+    }
+
+    .time-display {
+      background: #eef8ff;
+      border: 1px solid #d0e6f5;
+      border-radius: 10px;
+      padding: 15px;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .time-display .label {
+      display: block;
+      font-size: 0.8rem;
+      color: #5a7b92;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .time-display .value {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #007cbf;
+    }
 
     .primary-btn {
-      width: 100%; background: #007cbf; color: white; border: none;
-      padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold;
+      width: 100%;
+      padding: 14px;
+      background: #007cbf;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
     }
+
+    .primary-btn:hover { background: #00669d; }
     .primary-btn:disabled { background: #ccc; cursor: not-allowed; }
 
-    .secondary-btn {
-      width: 100%; background: transparent; color: #666; border: 1px solid #ccc;
-      padding: 8px; border-radius: 4px; cursor: pointer; margin-top: 8px;
+    .clear-btn {
+      width: 100%;
+      background: none;
+      border: none;
+      color: #888;
+      padding: 10px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      text-decoration: underline;
     }
 
-    .result-info {
-      margin-top: 20px; padding: 12px; background: #f0f7ff;
-      border-radius: 4px; border-left: 4px solid #007cbf;
-    }
-
-    .debug-controls {
-      margin-top: 15px;
+    /* 5. Debug Footer */
+    .debug-footer {
+      margin-top: 20px;
       padding-top: 15px;
       border-top: 1px solid #eee;
     }
 
-    .checkbox-label {
+    .checkbox-container {
       display: flex;
       align-items: center;
-      font-size: 0.85em;
-      color: #555;
+      font-size: 0.85rem;
+      color: #666;
       cursor: pointer;
+      user-select: none;
     }
 
-.checkbox-label input {
-  margin-right: 8px;
-  cursor: pointer;
-}
-
-.search-box { position: relative; margin-bottom: 15px; }
-.search-box input { width: 100%; padding: 10px; border-radius: 4px; border: 1px solid #ccc; }
-
-.autocomplete-results {
-  position: absolute;
-  top: 100%; left: 0; right: 0;
-  background: white;
-  border: 1px solid #ccc;
-  border-top: none;
-  z-index: 100;
-  max-height: 300px;
-  overflow-y: auto;
-  list-style: none;
-  padding: 0; margin: 0;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-}
-
-.autocomplete-results li {
-  padding: 10px;
-  cursor: pointer;
-  border-bottom: 1px solid #eee;
-  display: flex;
-  flex-direction: column;
-}
-
-.autocomplete-results li:hover { background: #f0f7ff; }
-.autocomplete-results .street { font-weight: bold; font-size: 0.9em; }
-.autocomplete-results .city { font-size: 0.8em; color: #666; }
-
-    .hint { font-size: 0.85em; color: #666; font-style: italic; margin-bottom: 15px; }
+    .checkbox-container input {
+      margin-right: 10px;
+    }
   `]
 })
 export class App {
   // Services
-  protected readonly map = inject(MapService);
+  protected readonly mapService = inject(MapService);
 
+  private debugService = inject(DebugService);
   private readonly routingService = inject(RoutingService);
-  private readonly searchService = inject(SearchService);
+  private readonly geocodeService = inject(GeocodingService);
 
   // Get settings
   protected readonly settings = inject(AppSettingsService).getAppSettings();
@@ -193,7 +368,8 @@ export class App {
   // Signals
   readonly selectedMode = signal<string>('bike');
 
-  readonly lastTravelTime = signal<string | null>(null);
+
+  readonly travelTime = signal<string | null>(null);
 
   readonly initialCenter = signal<[number, number]>([
     this.settings.mapOptions.mapInitialPoint.lng,
@@ -201,86 +377,200 @@ export class App {
   ]);
 
   readonly showBBox = signal<boolean>(false);
+  readonly showIslands = signal<boolean>(false);
 
   readonly initialZoom = signal<number>(this.settings.mapOptions.mapInitialZoom);
 
   readonly styleUrl = signal<string>(this.settings.mapOptions.mapStyleUrl);
 
-  readonly searchQuery = signal<string>('');
-  readonly searchResults = signal<any[]>([]);
-  private searchSubject = new Subject<string>();
+  readonly startSearchQuery = signal<string>('');
+  readonly startResults = signal<any[]>([]);
 
-constructor() {
-  // Setup der reaktiven Suche
-  this.searchSubject.pipe(
-    debounceTime(300), // Warte 300ms
-    distinctUntilChanged(), // Nur wenn Text sich geändert hat
-    switchMap(term => {
-      if (term.length < 3) return of([]); // Erst ab 3 Zeichen suchen
-      const center = this.map.getCenter(); // Optional: Aktuelle Kartenmitte für Proximity
-      return this.searchService.search(term, center?.lat, center?.lng);
-    })
-  ).subscribe(results => this.searchResults.set(results));
-}
+  readonly endSearchQuery = signal<string>('');
+  readonly endResults = signal<any[]>([]);
 
-onSearchInput(event: Event) {
-  const value = (event.target as HTMLInputElement).value;
-  this.searchSubject.next(value);
-}
+  private startSearchSubject = new Subject<string>();
+  private endSearchSubject = new Subject<string>();
 
-selectAddress(address: any) {
-  this.searchResults.set([]); // Liste schließen
+  constructor() {
+      // Watch for point changes to update text fields (Reverse Geocode)
+      effect(() => {
+        const start = this.mapService.startPoint();
+        if (start) this.updateAddress(start, 'start');
+      }, { allowSignalWrites: true });
 
-  const coords: [number, number] = [address.lon, address.lat];
-  this.map.setManualPoint(coords); // Neue Methode im MapService
-}
+      effect(() => {
+        const end = this.mapService.endPoint();
+        if (end) this.updateAddress(end, 'end');
+      }, { allowSignalWrites: true });
+
+    this.mapService.mapMove$.pipe(
+      // Nur weitermachen, wenn die Inseln-Anzeige aktiv ist
+      filter(() => this.showIslands()),
+      // Ein kurzes Delay, falls die Karte noch leicht "vibriert"
+      debounceTime(200),
+      // Den Request auslösen
+      switchMap(() => {
+        const bounds = this.mapService.getMapBounds();
+        return this.debugService.getRoutingIslands(bounds);
+      }),
+      // Verhindert, dass der Stream bei einem Fehler stirbt
+      catchError(err => {
+        console.error(err);
+        return of([]);
+      }),
+      takeUntilDestroyed() // Wichtig: Beendet den Stream, wenn die Komponente zerstört wird
+    ).subscribe(data => {
+      this.mapService.showIslandDebug(data);
+    });
+
+      // Reactive Logic for START input
+      this.startSearchSubject.pipe(
+        debounceTime(300),
+        distinctUntilChanged(),
+        switchMap(term => {
+          if (term.length < 3) return of([]);
+          const center =this.mapService.getCenter();
+          return this.geocodeService.geocode(term, center?.lat, center?.lng);
+        })
+      ).subscribe(results => this.startResults.set(results));
+
+      // Reactive Logic for END input
+      this.endSearchSubject.pipe(
+        debounceTime(300),
+        distinctUntilChanged(),
+        switchMap(term => {
+          if (term.length < 3) return of([]);
+          const center = this.mapService.getCenter();
+          return this.geocodeService.geocode(term, center?.lat, center?.lng);
+        })
+      ).subscribe(results => this.endResults.set(results));
+    }
+
+  // Clear everything and reset focus to start
+  resetAll() {
+    this.mapService.resetRouting();
+    this.startSearchQuery.set('');
+    this.endSearchQuery.set('');
+    this.mapService.activeInput.set('start');
+  }
+
+  onInput(event: Event, type: 'start' | 'end') {
+    const val = (event.target as HTMLInputElement).value;
+    if (type === 'start') {
+      this.startSearchQuery.set(val);
+      this.startSearchSubject.next(val);
+    } else {
+      this.endSearchQuery.set(val);
+      this.endSearchSubject.next(val);
+    }
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent) {
+    // Wenn der Klick außerhalb der sidebar war, Listen leeren
+    if (!(event.target as HTMLElement).closest('.input-wrapper')) {
+      this.startResults.set([]);
+      this.endResults.set([]);
+    }
+  }
+
+  toggleIslands(event: Event) {
+    const checked = (event.target as HTMLInputElement).checked;
+    this.showIslands.set(checked);
+
+    if (checked) {
+      const bounds = this.mapService.getMapBounds();
+      this.debugService.getRoutingIslands(bounds).subscribe(data => this.mapService.showIslandDebug(data));
+    } else {
+      this.mapService.removeIslandDebug();
+    }
+  }
+
+    triggerRoute() {
+      const start = this.mapService.startPoint();
+      const end = this.mapService.endPoint();
+
+      if (start && end) {
+        this.routingService.getRoute(this.selectedMode(), start, end).subscribe(response => {
+          this.mapService.setRoute(response);
+
+          // Calculate total seconds from all segments (out_seconds)
+          const totalSeconds = response.features.reduce((acc: number, f: any) =>
+            acc + (f.properties.seconds || 0), 0);
+
+          this.travelTime.set(this.formatDuration(totalSeconds));
+
+          if (this.showBBox() && response.debugBBox) {
+            this.mapService.showDebugBBox(response.debugBBox);
+          }
+        });
+      }
+    }
+
+    // Helper to swap Start and End
+    swapPoints() {
+      const s = this.mapService.startPoint();
+      const e = this.mapService.endPoint();
+      const sText = this.startSearchQuery();
+      const eText = this.endSearchQuery();
+
+      this.mapService.startPoint.set(e);
+      this.mapService.endPoint.set(s);
+      this.startSearchQuery.set(eText);
+      this.endSearchQuery.set(sText);
+
+      // Update markers on map
+      if (e) this.mapService.setManualPoint(e, 'start');
+      if (s) this.mapService.setManualPoint(s, 'end');
+    }
+
+  formatDuration(seconds: number): string {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (h > 0) return `${h} h ${m} min`;
+    return `${m} min`;
+  }
+
+  selectLocation(address: any, type: 'start' | 'end') {
+    const coords: [number, number] = [address.lon, address.lat];
+    const label = `${address.street} ${address.housenumber}, ${address.city}`;
+
+    if (type === 'start') {
+      this.startSearchQuery.set(label);
+      this.startResults.set([]);
+      this.mapService.setManualPoint(coords, 'start');
+    } else {
+      this.endSearchQuery.set(label);
+      this.endResults.set([]);
+      this.mapService.setManualPoint(coords, 'end');
+    }
+  }
 
   onModeChange(event: Event) {
     const select = event.target as HTMLSelectElement;
     this.selectedMode.set(select.value);
-    if (this.map.startPoint() && this.map.endPoint()) {
-      this.calculateRoute();
+    if (this.mapService.startPoint() && this.mapService.endPoint()) {
+      this.triggerRoute();
     }
   }
 
-  calculateRoute() {
-    const start = this.map.startPoint();
-    const end = this.map.endPoint();
+  private updateAddress(coords: [number, number], type: 'start' | 'end') {
+    this.geocodeService.reverseGeocode(coords[1], coords[0]).subscribe(addr => {
 
-    if (start && end) {
-      this.routingService.getRoute(this.selectedMode(), start, end).subscribe({
-        next: (geojson: any) => {
-          this.map.setRoute(geojson);
+      const streetPart = `${addr.street} ${addr.housenumber || ''}`.trim();
+      const cityPart = `${addr.plz || ''} ${addr.city || ''}`.trim();
+      const label = cityPart ? `${streetPart}, ${cityPart}` : streetPart;
 
-          if (geojson.debugBBox) {
-            this.map.showDebugBBox(geojson.debugBBox);
-          }
-
-          this.formatTravelTime(geojson);
-        },
-        error: (err: any) => alert('Routing error: ' + err.message)
-      });
-    }
+      if (type === 'start') this.startSearchQuery.set(label);
+      else this.endSearchQuery.set(label);
+    });
   }
 
   onToggleBBox(event: Event) {
     const checkbox = event.target as HTMLInputElement;
     this.showBBox.set(checkbox.checked);
 
-    this.map.toggleBBoxVisibility(this.showBBox());
-  }
-
-  private formatTravelTime(geojson: any) {
-    const totalSeconds = geojson.features.reduce(
-      (acc: number, f: any) => acc + (f.properties.seconds || 0), 0
-    );
-
-    if (totalSeconds > 0) {
-      const minutes = Math.floor(totalSeconds / 60);
-      const remainingSeconds = Math.round(totalSeconds % 60);
-      this.lastTravelTime.set(minutes > 0 ? `${minutes} min ${remainingSeconds} sec` : `${remainingSeconds} sec`);
-    } else {
-      this.lastTravelTime.set(null);
-    }
+    this.mapService.toggleBBoxVisibility(this.showBBox());
   }
 }
