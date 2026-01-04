@@ -7,8 +7,17 @@ namespace PgRoutingExperiments.Api.Services
 {
     public class MbTilesService
     {
+        private readonly ILogger<MbTilesService> _logger;
+
+        public MbTilesService(ILogger<MbTilesService> logger)
+        {
+            _logger = logger;
+        }
+
         public byte[]? Read(Tileset tileset, int z, int x, int y)
         {
+            _logger.LogDebug("Reading tile z={Z} x={X} y={Y} from {Filename}", z, x, y, tileset.Filename);
+
             using (var connection = new SqliteConnection($"Data Source={tileset.Filename}"))
             {
                 connection.Open();

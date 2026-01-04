@@ -33,7 +33,7 @@ services:
     volumes:
       - ~/.aspnet/https:/https:ro
       - ${APPDATA}/Microsoft/UserSecrets:/root/.microsoft/usersecrets:ro
-      - ./docker/pgrouting-tiles:/pgrouting-tiles
+      - ./docker/pgrouting-tiles:/pgrouting-tiles:ro
   pgrouting-web:
     container_name: routing-web
     build:
