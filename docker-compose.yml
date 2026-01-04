@@ -15,7 +15,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - "./docker/docker-data/postgis:/var/lib/postgresql/data"
+      - "./docker-data/postgis:/var/lib/postgresql/data"
       - ${PBF_LOCAL_FOLDER-default}:/osm_import:ro
   pgrouting-api:
     container_name: routing-api
@@ -33,7 +33,7 @@ services:
     volumes:
       - ~/.aspnet/https:/https:ro
       - ${APPDATA}/Microsoft/UserSecrets:/root/.microsoft/usersecrets:ro
-      - ./docker/pgrouting-tiles:/pgrouting-tiles:ro
+      - ./docker-data/pgrouting-tiles:/pgrouting-tiles:ro
   pgrouting-web:
     container_name: routing-web
     build:
@@ -50,3 +50,21 @@ services:
     volumes:
       - ~/.aspnet/https:/https:ro      
       - ${APPDATA}/Microsoft/UserSecrets:/root/.microsoft/usersecrets:ro
+  osm2po:
+      build: .
+      container_name: osm2po_importer
+      profiles:
+        - import
+      volumes:
+        - ${PBF_LOCAL_FOLDER}:/data
+      # Hier definieren wir den exakten Aufruf
+      command: >
+        java -Xmx4g -jar osm2po-core.jar
+        prefix=routing
+        /data/${PBF_FILENAME}
+        postp.0.class=de.cm.osm2po.postp.PgRoutingWriter
+        postp.0.url="jdbc:postgresql://routing-db:5432/${DB_NAME}?user=${DB_USER}&password=${DB_PASS}"
+        postp.0.idTableName=routing.osm2po_data
+        postp.0.writeFields=true
+        postp.0.writeKmh=true
+        postp.0.writeMultiLineStrings=false
