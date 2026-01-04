@@ -6,16 +6,17 @@ services:
     build:
       context: .
       dockerfile: ./docker/postgis/Dockerfile
-    container_name: ${CONTAINER_NAME}
+    container_name: ${CONTAINER_NAME-routing}
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASS}
-      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER-postgis}
+      POSTGRES_PASSWORD: ${DB_PASS-postgis}
+      POSTGRES_DB: ${DB_NAME-routing}
+    profiles:  ["db", "dev"]
     ports:
       - "5432:5432"
     volumes:
       - "./docker/docker-data/postgis:/var/lib/postgresql/data"
-      - ${PBF_LOCAL_FOLDER}:/osm_import:ro
+      - ${PBF_LOCAL_FOLDER-default}:/osm_import:ro
   pgrouting-api:
     container_name: routing-api
     build:
