@@ -20,7 +20,10 @@ export class MapService {
         container, style, center, zoom
       });
 
-      this.map.on('load', () => this.setupRoutingLayers());
+      this.map.on('load', () => {
+        this.setupRoutingLayers();
+        this.setupBBoxLayer();
+      });
 
       // Klick-Event zur Auswahl der Punkte
       this.map.on('click', (e) => {
@@ -33,19 +36,19 @@ export class MapService {
     const coords: [number, number] = [lngLat.lng, lngLat.lat];
 
     if (!this.startPoint()) {
-      // Erster Klick = Startpunkt
+      // First Click = Starting Point
       this.startPoint.set(coords);
       this.startMarker = new maplibregl.Marker({ color: '#2ecc71' })
         .setLngLat(lngLat)
         .addTo(this.map!);
     } else if (!this.endPoint()) {
-      // Zweiter Klick = Endpunkt
+      // Second Click = End Point
       this.endPoint.set(coords);
       this.endMarker = new maplibregl.Marker({ color: '#e74c3c' })
         .setLngLat(lngLat)
         .addTo(this.map!);
     } else {
-      // Dritter Klick = Reset und neuer Start
+      // Third Click = Reset Points
       this.resetRouting();
       this.handleMapClick(lngLat);
     }
@@ -56,7 +59,7 @@ export class MapService {
     this.endPoint.set(null);
     this.startMarker?.remove();
     this.endMarker?.remove();
-    // Route auf der Karte löschen
+    // Remove from Route
     const source = this.map?.getSource('route') as maplibregl.GeoJSONSource;
     source?.setData({ type: 'FeatureCollection', features: [] });
   }
@@ -82,6 +85,59 @@ export class MapService {
         'line-opacity': 0.75
       }
     });
+  }
+
+  toggleBBoxVisibility(visible: boolean) {
+    if (!this.map || !this.map.getLayer('bbox-layer')) return;
+
+    const visibility = visible ? 'visible' : 'none';
+
+    this.map.setLayoutProperty('bbox-layer', 'visibility', visibility);
+  }
+
+  private setupBBoxLayer() {
+    if (!this.map) return;
+
+    this.map.addSource('debug-bbox', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] }
+    });
+
+    this.map.addLayer({
+      id: 'bbox-layer',
+      type: 'fill',
+      source: 'debug-bbox',
+      layout: {
+        'visibility': 'none'
+      },
+      paint: {
+        'fill-color': '#ff0000',
+        'fill-opacity': 0.1,
+        'fill-outline-color': '#ff0000'
+      }
+    });
+  }
+
+  showDebugBBox(bbox: any) {
+    const source = this.map?.getSource('debug-bbox') as maplibregl.GeoJSONSource;
+    if (!source) return;
+
+    // Erstelle ein Polygon aus den 4 Ecken
+    const polygon = {
+      type: 'Feature',
+      geometry: {
+        type: 'Polygon',
+        coordinates: [[
+          [bbox.minLon, bbox.minLat],
+          [bbox.maxLon, bbox.minLat],
+          [bbox.maxLon, bbox.maxLat],
+          [bbox.minLon, bbox.maxLat],
+          [bbox.minLon, bbox.minLat] // Polygon schließen
+        ]]
+      }
+    };
+
+    source.setData({ type: 'FeatureCollection', features: [polygon as any] });
   }
 
   /**

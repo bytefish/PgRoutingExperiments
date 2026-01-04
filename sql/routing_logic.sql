@@ -165,7 +165,10 @@ DO $$ BEGIN RAISE NOTICE 'Road network is fully connected and ready.'; END $$;
 -- FUNCTIONS
 -- =========================================================================
 CREATE OR REPLACE FUNCTION get_route(
-    mode TEXT, start_lon FLOAT, start_lat FLOAT, end_lon FLOAT, end_lat FLOAT
+    mode TEXT, 
+    start_lon FLOAT, start_lat FLOAT, 
+    end_lon FLOAT, end_lat FLOAT,
+    bbox_buffer FLOAT DEFAULT 0.02
 )
 RETURNS TABLE (seq INTEGER, display_name TEXT, road_type TEXT, seconds FLOAT, geom GEOMETRY) AS $$
 DECLARE
@@ -173,9 +176,10 @@ DECLARE
     rev_cost_col TEXT;
     is_directed BOOLEAN;
     bbox_filter TEXT;
-    buffer_val FLOAT := 0.01; -- Approx 1.1km buffer
+    start_snap_point GEOMETRY;
+    end_snap_point GEOMETRY;
+    walking_speed_mps FLOAT := 1.38;
 BEGIN
-    -- 1. Configuration
     CASE mode
         WHEN 'car' THEN cost_col := 'cost_car'; rev_cost_col := 'reverse_cost_car'; is_directed := true;
         WHEN 'bike' THEN cost_col := 'cost_bike'; rev_cost_col := 'reverse_cost_bike'; is_directed := true;
@@ -183,54 +187,67 @@ BEGIN
         ELSE RAISE EXCEPTION 'Invalid mode.';
     END CASE;
 
-    -- 2. Dynamic Bounding Box (BBOX) logic
-    -- We calculate the min/max coordinates manually to avoid aggregate errors
+    SELECT ST_LineInterpolatePoint(geom, ST_LineLocatePoint(geom, ST_SetSRID(ST_Point(start_lon, start_lat), 4326)))
+    INTO start_snap_point FROM road_network 
+    ORDER BY geom <-> ST_SetSRID(ST_Point(start_lon, start_lat), 4326) LIMIT 1;
+
+    SELECT ST_LineInterpolatePoint(geom, ST_LineLocatePoint(geom, ST_SetSRID(ST_Point(end_lon, end_lat), 4326)))
+    INTO end_snap_point FROM road_network 
+    ORDER BY geom <-> ST_SetSRID(ST_Point(end_lon, end_lat), 4326) LIMIT 1;
+
     bbox_filter := format(
         'geom && ST_Expand(ST_MakeEnvelope(%L, %L, %L, %L, 4326), %L)',
         LEAST(start_lon, end_lon), LEAST(start_lat, end_lat),
         GREATEST(start_lon, end_lon), GREATEST(start_lat, end_lat),
-        buffer_val
+        bbox_buffer
     );
 
     RETURN QUERY
     WITH route_raw AS (
         SELECT * FROM pgr_dijkstra(
-            -- Inject the BBOX string directly into the SQL provider
-            format('SELECT id, source, target, %I AS cost, %I AS reverse_cost 
-                    FROM road_network 
-                    WHERE %I > 0 AND %s', 
+            format('SELECT id, source, target, %I AS cost, %I AS reverse_cost FROM road_network WHERE %I > 0 AND %s', 
                    cost_col, rev_cost_col, cost_col, bbox_filter),
-            ARRAY(SELECT id FROM road_network_vertices_pgr 
-                  ORDER BY the_geom <-> ST_SetSRID(ST_Point(start_lon, start_lat), 4326) LIMIT 5),
-            ARRAY(SELECT id FROM road_network_vertices_pgr 
-                  ORDER BY the_geom <-> ST_SetSRID(ST_Point(end_lon, end_lat), 4326) LIMIT 5),
+            ARRAY(SELECT id FROM road_network_vertices_pgr ORDER BY the_geom <-> start_snap_point LIMIT 5),
+            ARRAY(SELECT id FROM road_network_vertices_pgr ORDER BY the_geom <-> end_snap_point LIMIT 5),
             directed := is_directed
         )
     ),
-    best_route AS (
-        SELECT r.* FROM route_raw r
-        WHERE (r.start_vid, r.end_vid) IN (
-            SELECT start_vid, end_vid FROM route_raw 
-            GROUP BY start_vid, end_vid ORDER BY SUM(cost) ASC LIMIT 1
-        )
+    ordered_route AS (
+        SELECT r.seq, rn.name, rn.road_type, r.cost as seconds, rn.geom as edge_geom
+        FROM route_raw r
+        JOIN road_network rn ON r.edge = rn.id
+        ORDER BY r.seq
+    ),
+    conn_start_click AS (
+        SELECT 0, 'Access'::TEXT, 'connection'::TEXT, 
+               (ST_DistanceSphere(ST_SetSRID(ST_Point(start_lon, start_lat), 4326), start_snap_point) / walking_speed_mps)::FLOAT,
+               ST_MakeLine(ST_SetSRID(ST_Point(start_lon, start_lat), 4326), start_snap_point)
+    ),
+    conn_start_v AS (
+        SELECT 1, 'Entry'::TEXT, 'connection'::TEXT,
+               (ST_DistanceSphere(start_snap_point, ST_StartPoint((SELECT edge_geom FROM ordered_route LIMIT 1))) / walking_speed_mps)::FLOAT,
+               ST_MakeLine(start_snap_point, ST_StartPoint((SELECT edge_geom FROM ordered_route LIMIT 1)))
+        WHERE EXISTS (SELECT 1 FROM ordered_route)
+    ),
+    main_route AS (
+        SELECT seq + 2 as seq, name, road_type, seconds, edge_geom FROM ordered_route
+    ),
+    conn_end_v AS (
+        SELECT (SELECT MAX(m.seq) + 1 FROM main_route m), 'Exit'::TEXT, 'connection'::TEXT,
+               (ST_DistanceSphere(ST_EndPoint((SELECT m.edge_geom FROM main_route m ORDER BY m.seq DESC LIMIT 1)), end_snap_point) / walking_speed_mps)::FLOAT,
+               ST_MakeLine(ST_EndPoint((SELECT m.edge_geom FROM main_route m ORDER BY m.seq DESC LIMIT 1)), end_snap_point)
+        WHERE EXISTS (SELECT 1 FROM main_route)
+    ),
+    conn_end_click AS (
+        SELECT (SELECT COALESCE(MAX(m.seq), 2) + 2 FROM main_route m), 'Destination'::TEXT, 'connection'::TEXT,
+               (ST_DistanceSphere(end_snap_point, ST_SetSRID(ST_Point(end_lon, end_lat), 4326)) / walking_speed_mps)::FLOAT,
+               ST_MakeLine(end_snap_point, ST_SetSRID(ST_Point(end_lon, end_lat), 4326))
     )
-    SELECT 
-        r.seq,
-        COALESCE(rn.name, nearby.name || ' (Access)', initcap(rn.road_type)) as display_name,
-        rn.road_type,
-        ROUND(r.cost::numeric, 1)::FLOAT as seconds,
-        rn.geom
-    FROM best_route r
-    JOIN road_network rn ON r.edge = rn.id
-    LEFT JOIN LATERAL (
-        SELECT name FROM road_network parent
-        WHERE (rn.name IS NULL OR rn.name LIKE 'Unnamed%')
-          AND parent.name NOT LIKE 'Unnamed%'
-          AND parent.road_type NOT IN ('Cycleway', 'Footway', 'Path')
-          AND parent.geom && ST_Expand(rn.geom, 0.0005)
-          AND ST_DWithin(rn.geom, parent.geom, 0.0002)
-        ORDER BY rn.geom <-> parent.geom ASC LIMIT 1
-    ) nearby ON TRUE
-    ORDER BY r.seq;
+    SELECT * FROM conn_start_click
+    UNION ALL SELECT * FROM conn_start_v
+    UNION ALL SELECT * FROM main_route
+    UNION ALL SELECT * FROM conn_end_v
+    UNION ALL SELECT * FROM conn_end_click
+    ORDER BY seq;
 END;
 $$ LANGUAGE plpgsql STABLE;

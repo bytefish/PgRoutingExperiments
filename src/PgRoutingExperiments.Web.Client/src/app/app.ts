@@ -47,6 +47,15 @@ import { AppSettingsService } from './services/app-settings.service';
         Reset Map
       </button>
 
+      <div class="debug-controls">
+        <label class="checkbox-label">
+        <input type="checkbox"
+           [checked]="showBBox()"
+           (change)="onToggleBBox($event)">
+        Show Search Area (BBox)
+      </label>
+     </div>
+
       @if (lastTravelTime()) {
         <div class="result-info">
           <strong>Estimated Time:</strong> {{ lastTravelTime() }}
@@ -95,6 +104,25 @@ import { AppSettingsService } from './services/app-settings.service';
       border-radius: 4px; border-left: 4px solid #007cbf;
     }
 
+    .debug-controls {
+      margin-top: 15px;
+      padding-top: 15px;
+      border-top: 1px solid #eee;
+    }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      font-size: 0.85em;
+      color: #555;
+      cursor: pointer;
+    }
+
+.checkbox-label input {
+  margin-right: 8px;
+  cursor: pointer;
+}
+
     .hint { font-size: 0.85em; color: #666; font-style: italic; margin-bottom: 15px; }
   `]
 })
@@ -112,14 +140,17 @@ export class App {
     { id: 'walk', label: 'Pedestrian' }
   ];
 
+  // Signals
   readonly selectedMode = signal<string>('bike');
-
+  
   readonly lastTravelTime = signal<string | null>(null);
 
   readonly initialCenter = signal<[number, number]>([
     this.settings.mapOptions.mapInitialPoint.lng,
     this.settings.mapOptions.mapInitialPoint.lat
   ]);
+
+  readonly showBBox = signal<boolean>(false);
 
   readonly initialZoom = signal<number>(this.settings.mapOptions.mapInitialZoom);
 
@@ -141,11 +172,23 @@ export class App {
       this.routing.getRoute(this.selectedMode(), start, end).subscribe({
         next: (geojson: any) => {
           this.map.setRoute(geojson);
+          
+          if (geojson.debugBBox) {
+            this.map.showDebugBBox(geojson.debugBBox);
+          }
+
           this.formatTravelTime(geojson);
         },
         error: (err: any) => alert('Routing error: ' + err.message)
       });
     }
+  }
+
+  onToggleBBox(event: Event) {
+    const checkbox = event.target as HTMLInputElement;
+    this.showBBox.set(checkbox.checked);
+
+    this.map.toggleBBoxVisibility(this.showBBox());
   }
 
   private formatTravelTime(geojson: any) {
