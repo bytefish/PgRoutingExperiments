@@ -89,10 +89,6 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
     <div class="debug-footer">
       <label class="checkbox-container">
-        <input type="checkbox" [checked]="showBBox()" (change)="onToggleBBox($event)">
-        <span>Show Search BBox (Debug)</span>
-      </label>
-      <label class="checkbox-container">
         <input type="checkbox" [checked]="showIslands()" (change)="toggleIslands($event)">
         <span style="color: red;">⚠ Show Routing Islands</span>
       </label>
@@ -376,7 +372,6 @@ export class App {
     this.settings.mapOptions.mapInitialPoint.lat
   ]);
 
-  readonly showBBox = signal<boolean>(false);
   readonly showIslands = signal<boolean>(false);
 
   readonly initialZoom = signal<number>(this.settings.mapOptions.mapInitialZoom);
@@ -385,12 +380,12 @@ export class App {
 
   readonly startSearchQuery = signal<string>('');
   readonly startResults = signal<any[]>([]);
+  private startSearchSubject = new Subject<string>();
 
   readonly endSearchQuery = signal<string>('');
   readonly endResults = signal<any[]>([]);
-
-  private startSearchSubject = new Subject<string>();
   private endSearchSubject = new Subject<string>();
+
 
   constructor() {
       // Watch for point changes to update text fields (Reverse Geocode)
@@ -405,21 +400,17 @@ export class App {
       }, { allowSignalWrites: true });
 
     this.mapService.mapMove$.pipe(
-      // Nur weitermachen, wenn die Inseln-Anzeige aktiv ist
       filter(() => this.showIslands()),
-      // Ein kurzes Delay, falls die Karte noch leicht "vibriert"
       debounceTime(200),
-      // Den Request auslösen
       switchMap(() => {
         const bounds = this.mapService.getMapBounds();
         return this.debugService.getRoutingIslands(bounds);
       }),
-      // Verhindert, dass der Stream bei einem Fehler stirbt
       catchError(err => {
         console.error(err);
         return of([]);
       }),
-      takeUntilDestroyed() // Wichtig: Beendet den Stream, wenn die Komponente zerstört wird
+      takeUntilDestroyed()
     ).subscribe(data => {
       this.mapService.showIslandDebug(data);
     });
@@ -468,7 +459,6 @@ export class App {
 
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent) {
-    // Wenn der Klick außerhalb der sidebar war, Listen leeren
     if (!(event.target as HTMLElement).closest('.input-wrapper')) {
       this.startResults.set([]);
       this.endResults.set([]);
@@ -501,9 +491,6 @@ export class App {
 
           this.travelTime.set(this.formatDuration(totalSeconds));
 
-          if (this.showBBox() && response.debugBBox) {
-            this.mapService.showDebugBBox(response.debugBBox);
-          }
         });
       }
     }
@@ -565,12 +552,5 @@ export class App {
       if (type === 'start') this.startSearchQuery.set(label);
       else this.endSearchQuery.set(label);
     });
-  }
-
-  onToggleBBox(event: Event) {
-    const checkbox = event.target as HTMLInputElement;
-    this.showBBox.set(checkbox.checked);
-
-    this.mapService.toggleBBoxVisibility(this.showBBox());
   }
 }

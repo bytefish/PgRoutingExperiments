@@ -48,7 +48,6 @@ export class MapService {
   private setupLayers(): void {
     if (!this.map) return;
 
-    // 1. Route Layer
     this.map.addSource('route', {
       type: 'geojson',
       data: { type: 'FeatureCollection', features: [] }
@@ -65,24 +64,6 @@ export class MapService {
         'line-opacity': 0.8
       }
     });
-
-    // 2. Debug BBox Layer
-    this.map.addSource('debug-bbox', {
-      type: 'geojson',
-      data: { type: 'FeatureCollection', features: [] }
-    });
-
-    this.map.addLayer({
-      id: 'bbox-layer',
-      type: 'fill',
-      source: 'debug-bbox',
-      layout: { 'visibility': 'none' },
-      paint: {
-        'fill-color': '#ff0000',
-        'fill-opacity': 0.1,
-        'fill-outline-color': '#ff0000'
-      }
-    });
   }
 
   getMapBounds(): maplibregl.LngLatBounds | undefined {
@@ -93,7 +74,6 @@ export class MapService {
   }
 
   showIslandDebug(islands: any[]) {
-    // Wir definieren das Objekt explizit als FeatureCollection
     const geojson: any = {
       type: 'FeatureCollection',
       features: islands.map(i => ({
@@ -199,7 +179,6 @@ export class MapService {
       const bounds = new maplibregl.LngLatBounds();
       geojson.features.forEach((f: any) => {
         f.geometry.coordinates.forEach((c: any) => {
-          // Prüfen ob verschachtelt (LineString) oder einzeln (Point)
           if (Array.isArray(c[0])) {
             c.forEach((cc: any) => bounds.extend(cc));
           } else {
@@ -208,32 +187,6 @@ export class MapService {
         });
       });
       this.map?.fitBounds(bounds, { padding: 50 });
-    }
-  }
-
-  showDebugBBox(bbox: any): void {
-    const source = this.map?.getSource('debug-bbox') as maplibregl.GeoJSONSource;
-    if (!source) return;
-
-    const polygon = {
-      type: 'Feature',
-      geometry: {
-        type: 'Polygon',
-        coordinates: [[
-          [bbox.minLon, bbox.minLat],
-          [bbox.maxLon, bbox.minLat],
-          [bbox.maxLon, bbox.maxLat],
-          [bbox.minLon, bbox.maxLat],
-          [bbox.minLon, bbox.minLat]
-        ]]
-      }
-    };
-    source.setData({ type: 'FeatureCollection', features: [polygon as any] });
-  }
-
-  toggleBBoxVisibility(visible: boolean): void {
-    if (this.map?.getLayer('bbox-layer')) {
-      this.map.setLayoutProperty('bbox-layer', 'visibility', visible ? 'visible' : 'none');
     }
   }
 
