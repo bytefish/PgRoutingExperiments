@@ -51,20 +51,44 @@ services:
       - ~/.aspnet/https:/https:ro      
       - ${APPDATA}/Microsoft/UserSecrets:/root/.microsoft/usersecrets:ro
   osm2po:
-      build: .
-      container_name: osm2po_importer
-      profiles:
-        - import
-      volumes:
-        - ${PBF_LOCAL_FOLDER}:/data
-      # Hier definieren wir den exakten Aufruf
-      command: >
-        java -Xmx4g -jar osm2po-core.jar
-        prefix=routing
-        /data/${PBF_FILENAME}
-        postp.0.class=de.cm.osm2po.postp.PgRoutingWriter
-        postp.0.url="jdbc:postgresql://routing-db:5432/${DB_NAME}?user=${DB_USER}&password=${DB_PASS}"
-        postp.0.idTableName=routing.osm2po_data
-        postp.0.writeFields=true
-        postp.0.writeKmh=true
-        postp.0.writeMultiLineStrings=false
+    build:
+      context: .
+      dockerfile: ./docker/osm2po/Dockerfile
+    container_name: osm2po_importer
+    profiles:
+      - import
+    volumes:
+      - ${PBF_LOCAL_FOLDER}:/data
+      - ./docker/osm2po/osm2po.config:/opt/osm2po/osm2po.config
+      - ./docker/osm2po/import.sh:/opt/osm2po/import.sh
+    environment:
+      - PBF_FILENAME=${PBF_FILENAME}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
+    command: ["/bin/bash", "/opt/osm2po/import.sh"]
+      
+  osm2pgrouting:
+    build:
+      context: .
+      dockerfile: ./docker/osm2pgrouting/Dockerfile
+    container_name: osm2pgrouting_importer
+    profiles: [import]
+    volumes:
+      - ${PBF_LOCAL_FOLDER}:/data
+    command: >
+      sh -c "
+      echo 'Wandle PBF in XML um (das kann dauern)...' &&
+      osmosis --rb file=/data/${PBF_FILENAME} --wx file=/data/temp.osm &&
+      echo 'Starte Import in die Datenbank...' &&
+      osm2pgrouting 
+      -f /data/temp.osm 
+      -c /usr/share/osm2pgrouting/mapconfig.xml 
+      -h routing-db 
+      -p 5432 
+      -d ${DB_NAME} 
+      -U ${DB_USER} 
+      -W ${DB_PASS} 
+      --clean &&
+      rm /data/temp.osm &&
+      echo 'Fertig!'"

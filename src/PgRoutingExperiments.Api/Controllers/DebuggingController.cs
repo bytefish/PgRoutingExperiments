@@ -30,8 +30,7 @@ namespace PgRoutingExperiments.Api.Controllers
 
             const string sql = @"
                 SELECT id, ST_AsGeoJSON(ST_Transform(geom, 4326)) as geometry, component_id 
-                FROM network_islands 
-                WHERE component_id != 5 
+                FROM debugging.network_islands
                 AND geom && ST_MakeEnvelope(@minLon, @minLat, @maxLon, @maxLat, 4326)
                 LIMIT 2000";
 

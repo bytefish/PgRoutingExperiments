@@ -9,7 +9,7 @@ $DB_CONFIG = @{
     SQL_OSM2PO_FILE     = "$PSScriptRoot\sql\osm2po.sql"
     SQL_ROUTING_FILE    = "$PSScriptRoot\sql\routing.sql"
     SQL_GEOCODING_FILE  = "$PSScriptRoot\sql\geocoding.sql"
-    SQL_NETWORK_FILE    = "$PSScriptRoot\sql\create-network-islands.sql"
+    SQL_DEBUGGING_FILE  = "$PSScriptRoot\sql\debugging.sql"
     CONTAINER_NAME      = "routing-db"
 }
 
@@ -64,11 +64,12 @@ if (-not (Wait-ForPostGis)) {
     exit 1
 }
 
-# 1. DATABASE PREPARATION (Extensions & Schemas)
+# DATABASE PREPARATION (Extensions & Schemas)
 Invoke-SqlFile -filePath $DB_CONFIG.SQL_INIT_FILE -targetName "init.sql"
 
-# 2. IDEMPOTENT ROUTING IMPORT (osm2po)
+# IDEMPOTENT ROUTING IMPORT (osm2po)
 $routingExists = Invoke-SqlStatement -sql "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'routing' AND table_name = 'osm2po_data');"
+
 if ($routingExists -ne "t") {
     Write-Host "--- Importing OSM Routing Data (osm2po) ---" -ForegroundColor Cyan
     $env:OSM_FILE = $env:PBF_FILENAME
@@ -77,18 +78,32 @@ if ($routingExists -ne "t") {
     Write-Host "Routing data already exists. Skipping osm2po." -ForegroundColor Yellow
 }
 
-# 3. IDEMPOTENT GEOCODER IMPORT (osm2pgsql)
+# IDEMPOTENT GEOCODER IMPORT (osm2pgsql)
 $geocoderExists = Invoke-SqlStatement -sql "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'planet_osm_line');"
+
 if ($geocoderExists -ne "t") {
+    
     Write-Host "--- Importing OSM Geocoding Data (osm2pgsql) ---" -ForegroundColor Cyan
-    # Hier dein bestehender osm2pgsql Logik-Block (Installation & Run)
+
+    docker exec $DB_CONFIG.CONTAINER_NAME psql -d $env:DB_NAME -U $env:DB_USER -c "CREATE EXTENSION IF NOT EXISTS hstore; CREATE EXTENSION IF NOT EXISTS pgrouting;"
+    
+    # Check if osm2pgsql is installed, install if missing
+    $hasOsm = docker exec $DB_CONFIG.CONTAINER_NAME which osm2pgsql
+    
+    if (!$hasOsm) {
+        Write-Host "osm2pgsql not found. Installing..." -ForegroundColor Yellow
+        
+        docker exec -u root $DB_CONFIG.CONTAINER_NAME apt-get update
+        docker exec -u root $DB_CONFIG.CONTAINER_NAME apt-get install -y osm2pgsql
+    }
+    
     docker exec -it $DB_CONFIG.CONTAINER_NAME osm2pgsql --create --database $env:DB_NAME --username $env:DB_USER --hstore-all --proj 4326 --slim "/osm_import/$($env:PBF_FILENAME)"
 }
 
-# 4. APPLY LOGIC (Functions, Views, Indexes)
+# APPLY LOGIC (Functions, Views, Indexes)
 Invoke-SqlFile -filePath $DB_CONFIG.SQL_OSM2PO_FILE -targetName "osm2po.sql"
 Invoke-SqlFile -filePath $DB_CONFIG.SQL_ROUTING_FILE -targetName "routing.sql"
 Invoke-SqlFile -filePath $DB_CONFIG.SQL_GEOCODING_FILE -targetName "geocoding.sql"
-Invoke-SqlFile -filePath $DB_CONFIG.SQL_NETWORK_FILE -targetName "network.sql"
+Invoke-SqlFile -filePath $DB_CONFIG.SQL_DEBUGGING_FILE -targetName "network.sql"
 
 Write-Host "--- DEPLOYMENT FINISHED ---" -ForegroundColor Green
