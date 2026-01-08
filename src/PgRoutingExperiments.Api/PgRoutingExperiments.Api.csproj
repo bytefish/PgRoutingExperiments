@@ -24,7 +24,6 @@
     </ItemGroup>
 
     <ItemGroup>
-      <Folder Include="Dto\" />
       <Folder Include="wwwroot\fonts\" />
     </ItemGroup>
 

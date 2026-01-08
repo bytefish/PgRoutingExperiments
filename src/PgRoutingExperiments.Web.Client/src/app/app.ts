@@ -10,6 +10,7 @@ import { catchError, debounceTime, distinctUntilChanged, filter, of, Subject, sw
 import { GeocodingService } from './services/geocoding.service';
 import { DebugService } from './services/debug.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { RouteOptions, TransportMode, TransportModeOption } from './model/routing';
 
 @Component({
   selector: 'app-root',
@@ -20,7 +21,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
     <div class="mode-selector">
       <button [class.active]="selectedMode() === 'car'" (click)="selectedMode.set('car')">🚗</button>
       <button [class.active]="selectedMode() === 'bike'" (click)="selectedMode.set('bike')">🚲</button>
-      <button [class.active]="selectedMode() === 'walk'" (click)="selectedMode.set('walk')">🚶</button>
+      <button [class.active]="selectedMode() === 'foot'" (click)="selectedMode.set('foot')">🚶</button>
     </div>
 
     <div class="routing-container">
@@ -88,6 +89,23 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
     </div>
 
     <div class="debug-footer">
+      <label class="checkbox-container">
+        <input type="checkbox" [checked]="options().exclude_motorway" (change)="toggleOption('exclude_motorway')">
+        <span>Exclude Motorways</span>
+      </label>
+
+      <label class="checkbox-container">
+        <input type="checkbox" [checked]="options().avoid_motorway" (change)="toggleOption('avoid_motorway')">
+        <span>Avoid Motorways</span>
+      </label>
+
+      @if (selectedMode() === 'car') {
+        <label class="checkbox-container">
+          <input type="checkbox" [checked]="options().optimize_consumption" (change)="toggleOption('optimize_consumption')">
+          <span>Optimize Consumption</span>
+        </label>
+      }
+
       <label class="checkbox-container">
         <input type="checkbox" [checked]="showIslands()" (change)="toggleIslands($event)">
         <span style="color: red;">⚠ Show Routing Islands</span>
@@ -355,14 +373,14 @@ export class App {
   // Get settings
   protected readonly settings = inject(AppSettingsService).getAppSettings();
 
-  readonly transportModes = [
+  readonly transportModes: TransportModeOption[] = [
     { id: 'bike', label: 'Bicycle' },
     { id: 'car', label: 'Car' },
-    { id: 'walk', label: 'Pedestrian' }
+    { id: 'foot', label: 'Pedestrian' }
   ];
 
   // Signals
-  readonly selectedMode = signal<string>('bike');
+  readonly selectedMode = signal<TransportMode>('bike');
 
 
   readonly travelTime = signal<string | null>(null);
@@ -386,6 +404,12 @@ export class App {
   readonly endResults = signal<any[]>([]);
   private endSearchSubject = new Subject<string>();
 
+  options = signal<RouteOptions>({
+    avoid_motorway: false,
+    exclude_motorway: false,
+    avoid_ferry: false,
+    optimize_consumption: false
+  });
 
   constructor() {
       // Watch for point changes to update text fields (Reverse Geocode)
@@ -465,6 +489,14 @@ export class App {
     }
   }
 
+
+  toggleOption(key: keyof RouteOptions) {
+    this.options.update(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  }
+
   toggleIslands(event: Event) {
     const checked = (event.target as HTMLInputElement).checked;
     this.showIslands.set(checked);
@@ -482,7 +514,7 @@ export class App {
       const end = this.mapService.endPoint();
 
       if (start && end) {
-        this.routingService.getRoute(this.selectedMode(), start, end).subscribe(response => {
+        this.routingService.getRoute(this.selectedMode(), start, end, this.options()).subscribe(response => {
           this.mapService.setRoute(response);
 
           // Calculate total seconds from all segments (out_seconds)
@@ -536,7 +568,13 @@ export class App {
 
   onModeChange(event: Event) {
     const select = event.target as HTMLSelectElement;
+
+    if (select.value !== 'car' && select.value !== 'bike' && select.value !== 'foot') {
+      return;
+    }
+
     this.selectedMode.set(select.value);
+
     if (this.mapService.startPoint() && this.mapService.endPoint()) {
       this.triggerRoute();
     }

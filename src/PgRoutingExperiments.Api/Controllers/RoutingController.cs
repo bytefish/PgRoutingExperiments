@@ -4,6 +4,7 @@ using Dapper;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Npgsql;
+using PgRoutingExperiments.Api.Dto;
 using PgRoutingExperiments.Api.Options;
 using System.Text.Json;
 
@@ -22,19 +23,10 @@ namespace PgRoutingExperiments.Api.Controllers
             _applicationOptions = applicationOptions.Value;
         }
 
-        [HttpGet]
+        [HttpPost]
         [Route("/route")]
-        public async Task<ActionResult> Get([FromQuery] string mode,
-            [FromQuery] double startLon, [FromQuery] double startLat,
-            [FromQuery] double endLon, [FromQuery] double endLat)
-        {
-            string transportMode = mode.ToLower() switch
-            {
-                "walk" => "foot",
-                "bike" => "bike",
-                _ => "car"
-            };
-
+        public async Task<ActionResult> Get([FromBody] RouteRequestDto routeRequestDto) {
+            
             using var connection = new NpgsqlConnection(_applicationOptions.ConnectionString);
 
             const string sql = @"
@@ -43,17 +35,20 @@ namespace PgRoutingExperiments.Api.Controllers
                     osm_name as name, 
                     cost_time as seconds,
                     ST_AsGeoJSON(geom) as geometry 
-                FROM routing.get_route(@startLon, @startLat, @endLon, @endLat, @transportMode)";
+                FROM routing.get_route(@startLon, @startLat, @endLon, @endLat, @transport_mode, @optionsJson::jsonb)";
+
+            string optionsJson = JsonSerializer.Serialize(routeRequestDto.Options) ?? "{}";
 
             try
             {
                 var rows = await connection.QueryAsync<dynamic>(sql, new
                 {
-                    startLon,
-                    startLat,
-                    endLon,
-                    endLat,
-                    transportMode
+                    startLon = routeRequestDto.StartLon,
+                    startLat = routeRequestDto.StartLat,
+                    endLon = routeRequestDto.EndLon,
+                    endLat = routeRequestDto.EndLat,
+                    transport_mode = routeRequestDto.Mode,
+                    optionsJson = optionsJson
                 });
 
                 if (!rows.Any())
@@ -75,7 +70,7 @@ namespace PgRoutingExperiments.Api.Controllers
                 return Ok(new
                 {
                     type = "FeatureCollection",
-                    metadata = new { mode = transportMode },
+                    metadata = new { mode = routeRequestDto.Mode },
                     features
                 });
             }
