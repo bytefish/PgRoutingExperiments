@@ -1,7 +1,6 @@
 ﻿// Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using Microsoft.AspNetCore.Cors.Infrastructure;
-using OpenSkyRestClient;
 using PgRoutingExperiments.Api.Options;
 using PgRoutingExperiments.Api.Services;
 using Serilog;
@@ -18,8 +17,8 @@ public partial class Program
         string logDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PgRouting");
 
         // We are writing with RollingFileAppender using a daily rotation, and we want to have the filename as 
-        // as "GitClub-{Date}.log", the date will be set by Serilog automagically.
-        string logFilePath = Path.Combine(logDirectory, "PgRoutingExample-.log");
+        // as "PgRouting-{Date}.log", the date will be set by Serilog automagically.
+        string logFilePath = Path.Combine(logDirectory, "PgRouting-.log");
 
         // Configure the Serilog Logger. This Serilog Logger will be passed 
         // to the Microsoft.Extensions.Logging LoggingBuilder using the 
@@ -72,23 +71,12 @@ public partial class Program
             // Options
             builder.Services.Configure<ApplicationOptions>(builder.Configuration.GetSection("Application"));
 
-            // Infrastructure (Tileserver)
+            // Services
             builder.Services.AddSingleton<MbTilesService>();
-
-            // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-            builder.Services.AddEndpointsApiExplorer();
-            builder.Services.AddSwaggerGen();
-
+            
             builder.Services.AddControllers();
 
             var app = builder.Build();
-
-            // Configure the HTTP request pipeline.
-            if (app.Environment.IsDevelopment())
-            {
-                app.UseSwagger();
-                app.UseSwaggerUI();
-            }
 
             // CORS
             app.UseCors("CorsPolicy");
