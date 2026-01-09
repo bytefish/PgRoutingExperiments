@@ -8,7 +8,7 @@ import {
   OnDestroy,
   input,
   viewChild,
-  inject
+  inject,
 } from '@angular/core';
 import { MapService } from '../services/map.service';
 import { StyleSpecification, LngLatLike } from 'maplibre-gl';
@@ -32,24 +32,21 @@ import { StyleSpecification, LngLatLike } from 'maplibre-gl';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MapComponent implements AfterViewInit, OnDestroy {
-
   private readonly mapService = inject(MapService);
 
   private readonly mapContainer = viewChild.required<ElementRef<HTMLDivElement>>('container');
 
-  readonly mapStyle = input<StyleSpecification | string>('https://demotiles.maplibre.org/style.json');
+  readonly mapStyle = input<StyleSpecification | string>(
+    'https://demotiles.maplibre.org/style.json'
+  );
+
   readonly center = input<LngLatLike>([7.628, 51.96]);
   readonly zoom = input<number>(12);
 
   ngAfterViewInit(): void {
     const containerElement = this.mapContainer().nativeElement;
 
-    this.mapService.buildMap(
-      containerElement,
-      this.mapStyle(),
-      this.center(),
-      this.zoom()
-    );
+    this.mapService.buildMap(containerElement, this.mapStyle(), this.center(), this.zoom());
   }
 
   ngOnDestroy(): void {

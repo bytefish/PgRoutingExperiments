@@ -1,15 +1,17 @@
 /**
- * @summary Transportation Types
+ * Transportation Types
  */
 export type TransportMode = 'car' | 'bike' | 'foot';
 
-
+/**
+ * Options displayed in the UI.
+ */
 export interface TransportModeOption {
   id: TransportMode;
   label: string;
 }
 /**
- * @summary Routing Options
+ * Routing Options
  */
 export interface RouteOptions {
   avoid_motorway?: boolean;

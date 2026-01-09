@@ -25,8 +25,8 @@ namespace PgRoutingExperiments.Api.Controllers
 
         [HttpPost]
         [Route("/route")]
-        public async Task<ActionResult> Get([FromBody] RouteRequestDto routeRequestDto) {
-            
+        public async Task<ActionResult> Get([FromBody] RouteRequestDto routeRequestDto)
+        {
             using var connection = new NpgsqlConnection(_applicationOptions.ConnectionString);
 
             const string sql = @"
@@ -56,7 +56,8 @@ namespace PgRoutingExperiments.Api.Controllers
                     return NotFound(new { message = "No route found" });
                 }
 
-                var features = rows.Select(row => new {
+                var features = rows.Select(row => new
+                {
                     type = "Feature",
                     geometry = JsonDocument.Parse((string)row.geometry).RootElement,
                     properties = new

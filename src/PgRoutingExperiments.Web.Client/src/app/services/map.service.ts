@@ -29,7 +29,7 @@ export class MapService {
         style: style || 'https://demotiles.maplibre.org/style.json',
         center: center || [7.628, 51.96],
         zoom: zoom || 12,
-        attributionControl: false
+        attributionControl: false,
       });
 
       this.map.on('moveend', () => this.mapMoveSubject.next());
@@ -50,7 +50,7 @@ export class MapService {
 
     this.map.addSource('route', {
       type: 'geojson',
-      data: { type: 'FeatureCollection', features: [] }
+      data: { type: 'FeatureCollection', features: [] },
     });
 
     this.map.addLayer({
@@ -61,14 +61,13 @@ export class MapService {
       paint: {
         'line-color': '#007cbf',
         'line-width': 5,
-        'line-opacity': 0.8
-      }
+        'line-opacity': 0.8,
+      },
     });
   }
 
   getMapBounds(): maplibregl.LngLatBounds | undefined {
-    if (!this.map)
-      return undefined;
+    if (!this.map) return undefined;
 
     return this.map.getBounds();
   }
@@ -76,14 +75,14 @@ export class MapService {
   showIslandDebug(islands: any[]) {
     const geojson: any = {
       type: 'FeatureCollection',
-      features: islands.map(i => ({
+      features: islands.map((i) => ({
         type: 'Feature',
         geometry: typeof i.geometry === 'string' ? JSON.parse(i.geometry) : i.geometry,
         properties: {
           component: i.component_id,
-          id: i.id
-        }
-      }))
+          id: i.id,
+        },
+      })),
     };
 
     const source = this.map?.getSource('islands') as maplibregl.GeoJSONSource;
@@ -93,7 +92,7 @@ export class MapService {
     } else {
       this.map?.addSource('islands', {
         type: 'geojson',
-        data: geojson // Jetzt passt der Typ
+        data: geojson,
       });
 
       this.map?.addLayer({
@@ -103,21 +102,19 @@ export class MapService {
         paint: {
           'line-color': '#ff4d4d',
           'line-width': 2.5,
-          'line-dasharray': [2, 1]
-        }
+          'line-dasharray': [2, 1],
+        },
       });
     }
   }
 
   removeIslandDebug(): void {
-    if (!this.map)
-      return;
+    if (!this.map) return;
 
     if (this.map.getLayer('islands-layer')) {
       this.map.removeLayer('islands-layer');
     }
 
-    // Dann die Datenquelle (Source) entfernen
     if (this.map.getSource('islands')) {
       this.map.removeSource('islands');
     }
@@ -125,16 +122,16 @@ export class MapService {
 
   setManualPoint(coords: [number, number], type?: 'start' | 'end'): void {
     const targetType = type ?? this.activeInput();
+
     const lngLat = new maplibregl.LngLat(coords[0], coords[1]);
 
-  if (targetType === 'start') {
-    this.startPoint.set(coords);
-    if (!this.startMarker) {
-      this.startMarker = this.createDraggableMarker('#2ecc71', 'start');
-    }
-    this.startMarker.setLngLat(lngLat).addTo(this.map!);
-    // Auto-switch focus to end if start was just set
-    this.activeInput.set('end');
+    if (targetType === 'start') {
+      this.startPoint.set(coords);
+      if (!this.startMarker) {
+        this.startMarker = this.createDraggableMarker('#2ecc71', 'start');
+      }
+      this.startMarker.setLngLat(lngLat).addTo(this.map!);
+      this.activeInput.set('end');
     } else {
       this.endPoint.set(coords);
       if (!this.endMarker) {
@@ -142,10 +139,14 @@ export class MapService {
       }
       this.endMarker.setLngLat(lngLat).addTo(this.map!);
     }
-}
+  }
 
   private createDraggableMarker(color: string, type: 'start' | 'end') {
-    const marker = new maplibregl.Marker({ color, draggable: true });
+    const marker = new maplibregl.Marker({
+      color,
+      draggable: true,
+      anchor: 'center',
+    });
 
     marker.on('dragend', () => {
       const pos = marker.getLngLat();
@@ -166,8 +167,7 @@ export class MapService {
     } else if (!this.endPoint()) {
       this.setManualPoint(coords, 'end');
     } else {
-      this.resetRouting();
-      this.setManualPoint(coords, 'start');
+      this.setManualPoint(coords, 'end');
     }
   }
 
@@ -197,10 +197,17 @@ export class MapService {
   resetRouting(): void {
     this.startPoint.set(null);
     this.endPoint.set(null);
+
     this.startMarker?.remove();
     this.endMarker?.remove();
-    (this.map?.getSource('route') as maplibregl.GeoJSONSource)?.setData({ type: 'FeatureCollection', features: [] });
-    (this.map?.getSource('debug-bbox') as maplibregl.GeoJSONSource)?.setData({ type: 'FeatureCollection', features: [] });
+    (this.map?.getSource('route') as maplibregl.GeoJSONSource)?.setData({
+      type: 'FeatureCollection',
+      features: [],
+    });
+    (this.map?.getSource('debug-bbox') as maplibregl.GeoJSONSource)?.setData({
+      type: 'FeatureCollection',
+      features: [],
+    });
   }
 
   destroyMap(): void {

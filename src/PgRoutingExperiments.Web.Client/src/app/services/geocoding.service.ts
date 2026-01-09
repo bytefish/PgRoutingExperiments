@@ -1,9 +1,9 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-import { HttpClient, HttpParams } from "@angular/common/http";
-import { Injectable, inject } from "@angular/core";
-import { Observable } from "rxjs";
-import { AppSettingsService } from "./app-settings.service";
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { Injectable, inject } from '@angular/core';
+import { Observable } from 'rxjs';
+import { AppSettingsService } from './app-settings.service';
 
 @Injectable({ providedIn: 'root' })
 export class GeocodingService {
@@ -19,9 +19,7 @@ export class GeocodingService {
   }
 
   reverseGeocode(lat: number, lon: number): Observable<any> {
-    const params = new HttpParams()
-      .set('lat', lat.toString())
-      .set('lon', lon.toString());
+    const params = new HttpParams().set('lat', lat.toString()).set('lon', lon.toString());
 
     return this.http.get<any>(`${this.settings.apiUrl}/reverse-geocode`, { params });
   }

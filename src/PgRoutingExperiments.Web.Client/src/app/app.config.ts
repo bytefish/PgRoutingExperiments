@@ -6,8 +6,8 @@ export const appConfig: ApplicationConfig = {
   providers: [
     provideHttpClient(),
     provideAppInitializer(() => {
-        const settingsService = inject(AppSettingsService);
-        return settingsService.loadAppSettings();
-    })
-  ]
+      const settingsService = inject(AppSettingsService);
+      return settingsService.loadAppSettings();
+    }),
+  ],
 };
