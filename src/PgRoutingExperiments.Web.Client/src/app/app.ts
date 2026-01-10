@@ -436,7 +436,7 @@ export class App {
 
   readonly travelTime = signal<string | null>(null);
 
-  readonly useTrsp = signal<boolean>(false);
+  readonly useTrsp = signal<boolean>(true);
 
   // Signals for the Map
   readonly initialCenter = signal<[number, number]>([
