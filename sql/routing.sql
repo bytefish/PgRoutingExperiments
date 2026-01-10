@@ -14,14 +14,14 @@ RETURNS TABLE (
     geom GEOMETRY(LineString, 4326)
 ) AS $$
 DECLARE
-    -- 1. Bit-Flags (1=Car, 2=Bike, 4=Foot)
+    -- OSM2PO Bit-Flags (1=Car, 2=Bike, 4=Foot)
     v_flag_bit INTEGER := CASE 
         WHEN transport_mode = 'car' THEN 1 
         WHEN transport_mode = 'bike' THEN 2 
         WHEN transport_mode = 'foot' THEN 4 
         ELSE 1 END;
     
-    -- Durchschnittsspeeds für Bike/Foot (NULL bei Car -> nutzt osm2po cost)
+    -- Average Speed for the Transport Modes
     v_default_speed FLOAT := CASE 
         WHEN transport_mode = 'bike' THEN 15.0 
         WHEN transport_mode = 'foot' THEN 4.5 
@@ -33,14 +33,12 @@ DECLARE
     v_start_node BIGINT;
     v_end_node BIGINT;
 BEGIN
-    -- A. FILTER-LOGIK (Sperren)
+    
     IF (options->>'exclude_motorway')::BOOLEAN THEN
         v_extra_where := v_extra_where || ' AND clazz NOT IN (11, 12)';
     END IF;
 
-    -- B. KOSTEN-LOGIK (Priorisierung & Verbrauch)
     v_cost_calculation := CASE 
-        -- FAHRRAD: Radwege bevorzugen
         WHEN transport_mode = 'bike' THEN 
             'CASE 
                 WHEN clazz IN (51, 52) THEN (km / 15.0) * 0.7 
@@ -49,7 +47,6 @@ BEGIN
                 ELSE (km / 15.0) 
              END'
         
-        -- FUSSGÄNGER: Parks bevorzugen
         WHEN transport_mode = 'foot' THEN 
             'CASE 
                 WHEN clazz IN (53, 54, 52) THEN (km / 4.5) * 0.8 
@@ -57,13 +54,11 @@ BEGIN
                 ELSE (km / 4.5) 
              END'
 
-        -- AUTO: Standard, Vermeiden oder OPTIMIZE CONSUMPTION
         ELSE 
             CASE 
                 WHEN (options->>'exclude_motorway')::BOOLEAN THEN 'cost' -- Schon in WHERE gefiltert
                 WHEN (options->>'avoid_motorway')::BOOLEAN THEN 'CASE WHEN clazz IN (11, 12) THEN cost * 10.0 ELSE cost END'
                 
-                -- HIER: Die Verbrauchs-Logik
                 WHEN (options->>'optimize_consumption')::BOOLEAN THEN
                     'CASE 
                         WHEN clazz IN (11, 12) THEN cost * 1.5    -- Autobahn (Luftwiderstand)
@@ -75,7 +70,6 @@ BEGIN
             END
     END;
 
-    -- C. SNAPPING
     SELECT id INTO v_start_node FROM routing.osm2po_data_vertices_pgr
     ORDER BY the_geom <-> ST_SetSRID(ST_MakePoint(start_lon, start_lat), 4326) LIMIT 1;
 
@@ -84,7 +78,6 @@ BEGIN
 
     IF v_start_node IS NULL OR v_end_node IS NULL THEN RETURN; END IF;
 
-    -- D. DIJKSTRA
     RETURN QUERY
     SELECT 
         d.seq, e.osm_id, e.osm_name::TEXT, d.cost, e.geom_way

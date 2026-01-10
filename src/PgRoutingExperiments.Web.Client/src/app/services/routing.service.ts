@@ -15,6 +15,7 @@ export class RoutingService {
     mode: TransportMode,
     start: [number, number],
     end: [number, number],
+    useTrsp: boolean,
     options: RouteOptions
   ): Observable<any> {
     const url = `${this.settings.apiUrl}/route`;
@@ -25,6 +26,7 @@ export class RoutingService {
       endLon: end[0],
       endLat: end[1],
       mode: mode,
+      useTrsp: useTrsp,
       options: options,
     };
 

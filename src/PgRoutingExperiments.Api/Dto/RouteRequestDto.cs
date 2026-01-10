@@ -6,6 +6,8 @@ public class RouteRequestDto
 {
     public required string Mode { get; set; }
 
+    public required bool UseTrsp { get; set; } = false;
+
     public required double StartLon { get; set; }
 
     public required double StartLat { get; set; }

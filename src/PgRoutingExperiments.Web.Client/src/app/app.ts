@@ -111,6 +111,15 @@ import { RouteOptions, TransportMode, TransportModeOption } from './model/routin
         <label class="checkbox-container">
           <input
             type="checkbox"
+            [checked]="useTrsp()"
+            (change)="toggleUseTrsp($event)"
+          />
+          <span>Use TRSP Algorithm</span>
+        </label>
+
+        <label class="checkbox-container">
+          <input
+            type="checkbox"
             [checked]="options().exclude_motorway"
             (change)="toggleOption('exclude_motorway')"
           />
@@ -427,6 +436,8 @@ export class App {
 
   readonly travelTime = signal<string | null>(null);
 
+  readonly useTrsp = signal<boolean>(false);
+
   // Signals for the Map
   readonly initialCenter = signal<[number, number]>([
     this.settings.mapOptions.mapInitialPoint.lng,
@@ -573,6 +584,11 @@ export class App {
     }));
   }
 
+  toggleUseTrsp(event: Event) {
+    const checked = (event.target as HTMLInputElement).checked;
+    this.useTrsp.set(checked);
+  }
+
   toggleIslands(event: Event) {
     const checked = (event.target as HTMLInputElement).checked;
     this.showIslands.set(checked);
@@ -593,7 +609,7 @@ export class App {
 
     if (start && end) {
       this.routingService
-        .getRoute(this.selectedMode(), start, end, this.options())
+        .getRoute(this.selectedMode(), start, end, this.useTrsp(), this.options())
         .subscribe((response) => {
           this.mapService.setRoute(response);
 

@@ -29,13 +29,15 @@ namespace PgRoutingExperiments.Api.Controllers
         {
             using var connection = new NpgsqlConnection(_applicationOptions.ConnectionString);
 
-            const string sql = @"
+            string functionName = routeRequestDto.UseTrsp ? "routing.get_route_trsp" : "routing.get_route";
+
+            string sql = $@"
                 SELECT 
                     seq, 
                     osm_name as name, 
                     cost_time as seconds,
                     ST_AsGeoJSON(geom) as geometry 
-                FROM routing.get_route(@startLon, @startLat, @endLon, @endLat, @transport_mode, @optionsJson::jsonb)";
+                FROM {functionName}(@startLon, @startLat, @endLon, @endLat, @transport_mode, @optionsJson::jsonb)";
 
             string optionsJson = JsonSerializer.Serialize(routeRequestDto.Options) ?? "{}";
 

@@ -10,6 +10,7 @@ $DB_CONFIG = @{
     SQL_ROUTING_FILE    = "$PSScriptRoot\sql\routing.sql"
     SQL_GEOCODING_FILE  = "$PSScriptRoot\sql\geocoding.sql"
     SQL_DEBUGGING_FILE  = "$PSScriptRoot\sql\debugging.sql"
+    SQL_TRSP_FILE       = "$PSScriptRoot\sql\trsp.sql"
     CONTAINER_NAME      = "routing-db"
 }
 
@@ -105,5 +106,6 @@ Invoke-SqlFile -filePath $DB_CONFIG.SQL_OSM2PO_FILE -targetName "osm2po.sql"
 Invoke-SqlFile -filePath $DB_CONFIG.SQL_ROUTING_FILE -targetName "routing.sql"
 Invoke-SqlFile -filePath $DB_CONFIG.SQL_GEOCODING_FILE -targetName "geocoding.sql"
 Invoke-SqlFile -filePath $DB_CONFIG.SQL_DEBUGGING_FILE -targetName "network.sql"
+Invoke-SqlFile -filePath $DB_CONFIG.SQL_TRSP_FILE -targetName "trsp.sql"
 
 Write-Host "--- DEPLOYMENT FINISHED ---" -ForegroundColor Green
