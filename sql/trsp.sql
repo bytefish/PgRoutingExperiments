@@ -27,7 +27,7 @@ INSERT INTO routing.osm2po_data_res (from_edge, target_id, to_cost)
 SELECT 
     e1.id AS from_edge, 
     e2.id AS target_id, 
-   (10.0 / 3600.0) AS to_cost -- 20 Second Penalty
+   (10.0 / 3600.0) AS to_cost -- 10 Second Penalty
 FROM (
     SELECT 
         -- Index 1 (ID 'from'), Index 3 (ID 'to')
