@@ -11,12 +11,31 @@ Experiments for Routing using PostGIS.
 
 ## Running the Application ##
 
+### Certificates ###
+
 Create and Trust the Developer Certificates using `dotnet`:
 
 ```
 dotnet dev-certs https --clean
 dotnet dev-certs https -ep ${HOME}/.aspnet/https/aspnetapp.pfx -p SuperStrongPassword --trust
 ```
+
+### Data ###
+
+I am using the Natural Earth Relief using the following raster tiles:
+
+* [https://github.com/lukasmartinelli/naturalearthtiles/releases/download/v1.0/natural_earth_2_shaded_relief.raster.mbtiles](https://github.com/lukasmartinelli/naturalearthtiles/releases/download/v1.0/natural_earth_2_shaded_relief.raster.mbtiles)
+
+
+For the OSM Data I am using geofabrik:
+
+* [https://download.geofabrik.de/europe/germany/nordrhein-westfalen/muenster-regbez.html](https://download.geofabrik.de/europe/germany/nordrhein-westfalen/muenster-regbez.html)
+
+And you can use these Vector Tiles of Münster (Germany):
+
+* [https://data.maptiler.com/downloads/europe/germany/nordrhein-westfalen/muenster-regbez/](https://data.maptiler.com/downloads/europe/germany/nordrhein-westfalen/muenster-regbez/)
+
+### Configuration ###
 
 In the `.env` file adjust the PBF path: 
 
@@ -84,6 +103,8 @@ In the `.config/client/assets/style/osm_liberty/osm_liberty.json` you'll need to
   }
 }
 ```
+
+### Running the Application ###
 
 Then you can start the application with:
 
