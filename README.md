@@ -2,6 +2,13 @@
 
 Experiments for Routing using PostGIS.
 
+## Screenshot: Routing ##
+
+<a href="https://raw.githubusercontent.com/bytefish/PgRoutingExperiments/refs/heads/main/doc/screenshot.jpg">
+    <img src="https://raw.githubusercontent.com/bytefish/PgRoutingExperiments/refs/heads/main/doc/screenshot.jpg" alt="Map with Route Outlined" width="100%" />
+</a>
+
+
 ## Running the Application ##
 
 Create and Trust the Developer Certificates using `dotnet`:
@@ -85,12 +92,6 @@ docker-compose --profile dev up
 ```
 
 You can then go to `https://localhost:5001` and open the map.
-
-## Screenshot: Routing ##
-
-<a href="https://raw.githubusercontent.com/bytefish/PgRoutingExperiments/refs/heads/main/doc/screenshot.jpg">
-    <img src="https://raw.githubusercontent.com/bytefish/PgRoutingExperiments/refs/heads/main/doc/screenshot.jpg" alt="Map with Route Outlined" width="100%" />
-</a>
 
 ## Screenshot: Network Analysis (Routing Islands) ##
 
