@@ -1,22 +1,75 @@
 networks:
-  services:
+  routing-network:
 
 services:
+  
   db:
     build:
       context: .
       dockerfile: ./docker/postgis/Dockerfile
     container_name: ${CONTAINER_NAME-routing-db}
     environment:
-      POSTGRES_USER: ${DB_USER-postgis}
-      POSTGRES_PASSWORD: ${DB_PASS-postgis}
-      POSTGRES_DB: ${DB_NAME-routing_db}
+      POSTGRES_DB: ${DB_NAME:-routing_db}
+      POSTGRES_USER: ${DB_USER:-postgis}
+      POSTGRES_PASSWORD: ${DB_PASS:-postgis}
     profiles:  ["db", "dev"]
     ports:
       - "5432:5432"
     volumes:
       - "./docker-data/postgis:/var/lib/postgresql/data"
-      - ${PBF_LOCAL_FOLDER-default}:/osm_import:ro
+    networks:
+      - routing-network
+    healthcheck:
+      test: ["CMD-SHELL", "psql -U postgis -d routing_db -c 'SELECT postgis_full_version();' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  
+  osm2po:
+    build:
+      context: .
+      dockerfile: ./docker/osm2po/Dockerfile
+    container_name: osm2po_importer
+    profiles:  ["osm2po", "dev"]
+    volumes:
+      - ${PBF_LOCAL_FOLDER}:/data
+      - ./docker/osm2po/osm2po.config:/opt/osm2po/osm2po.config
+      - ./docker/osm2po/import.sh:/opt/osm2po/import.sh
+    environment:
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
+      - PBF_FILENAME=${PBF_FILENAME}
+    command: ["/bin/bash", "/opt/osm2po/import.sh"]
+    networks:
+      - routing-network
+    depends_on:
+      db:
+        condition: service_healthy
+        
+  setup-logic:
+    build:
+      context: .
+      dockerfile: ./docker/postgis/Dockerfile
+    container_name: osm2pgsql_importer
+    profiles:  ["osm2pgsql", "dev"]
+    environment:
+      - PGHOST=db
+      - PGUSER=${DB_USER}
+      - PGPASSWORD=${DB_PASS}
+      - PGDATABASE=${DB_NAME}
+      - PBF_FILENAME=${PBF_FILENAME}
+    volumes:
+      - ./sql:/sql:ro
+      - ${PBF_LOCAL_FOLDER}:/osm_import:ro
+      - ./docker/setup/setup.sh:/setup.sh:ro
+    entrypoint: ["/bin/bash", "/setup.sh"]
+    networks:
+      - routing-network
+    depends_on:
+      osm2po:
+        condition: service_completed_successfully
+        
   pgrouting-api:
     container_name: routing-api
     build:
@@ -34,6 +87,13 @@ services:
       - ~/.aspnet/https:/https:ro
       - ${APPDATA}/Microsoft/UserSecrets:/root/.microsoft/usersecrets:ro
       - ./docker-data/pgrouting-tiles:/pgrouting-tiles:ro
+      - ./config/api/appsettings.Docker.json:/app/appsettings.Docker.json:ro
+    networks:
+      - routing-network
+    depends_on:
+      setup-logic:
+        condition: service_completed_successfully
+        
   pgrouting-web:
     container_name: routing-web
     build:
@@ -50,20 +110,7 @@ services:
     volumes:
       - ~/.aspnet/https:/https:ro      
       - ${APPDATA}/Microsoft/UserSecrets:/root/.microsoft/usersecrets:ro
-  osm2po:
-    build:
-      context: .
-      dockerfile: ./docker/osm2po/Dockerfile
-    container_name: osm2po_importer
-    profiles:
-      - import
-    volumes:
-      - ${PBF_LOCAL_FOLDER}:/data
-      - ./docker/osm2po/osm2po.config:/opt/osm2po/osm2po.config
-      - ./docker/osm2po/import.sh:/opt/osm2po/import.sh
-    environment:
-      - PBF_FILENAME=${PBF_FILENAME}
-      - DB_NAME=${DB_NAME}
-      - DB_USER=${DB_USER}
-      - DB_PASS=${DB_PASS}
-    command: ["/bin/bash", "/opt/osm2po/import.sh"]
+      - ./config/web/appsettings.Docker.json:/app/appsettings.Docker.json:ro
+      - ./config/client/assets:/app/wwwwroot/assets:ro
+    networks:
+      - routing-network
